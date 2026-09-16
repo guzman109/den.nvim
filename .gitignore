@@ -1,0 +1,16 @@
+# Build output
+/target
+/.build
+
+# Packaged app bundles, built by package.py. 160MB+ and reproducible.
+/dist
+
+# A stray session file from a tool that opened a literal ":memory:" path.
+:memory:*
+
+# Den's own derived data, when a vault happens to live inside a checkout.
+# The index and history are rebuildable from the Markdown and belong to the
+# machine, not the repository.
+.den/
+
+.DS_Store

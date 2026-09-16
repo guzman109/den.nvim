@@ -1,0 +1,16 @@
+[package]
+name = "den-nvim"
+description = "Den's engine as a native Lua module, loaded in-process by Neovim."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# A cdylib Neovim `require`s directly, the way blink.cmp ships its matcher.
+# No daemon, no socket: the plugin calls the engine in-process.
+[lib]
+name = "den_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+den-core.workspace = true
+mlua = { version = "0.11", features = ["module", "luajit"] }
