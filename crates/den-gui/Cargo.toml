@@ -30,3 +30,4 @@ fontdb = "0.23.0"
 png = "0.17.16"
 rmpv = "1.3.1"
 dark-light = "3.0.0"
+resvg = { version = "0.45", default-features = false }

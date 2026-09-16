@@ -32,7 +32,7 @@ pub fn view(den: &Den) -> Element<'_> {
     let body = column![
         wordmark(den),
         nav(den),
-        group("projects", &palette),
+        projects_heading(den),
         workspace(den),
         group("tags", &palette),
         tags(den),
@@ -70,6 +70,41 @@ fn wordmark(den: &Den) -> Element<'_> {
     .into()
 }
 
+/// `projects`, plus a way out when one is selected.
+///
+/// A scope you cannot see and cannot leave is a trap, and the sidebar row that
+/// set it is easy to lose among a hundred notes.
+fn projects_heading(den: &Den) -> Element<'_> {
+    let palette = den.palette;
+    let mut line = row![
+        text("projects")
+            .size(size::META)
+            .font(mono())
+            .color(palette.line2)
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center);
+
+    if den.project().is_some() {
+        line = line.push(crate::widget::filler());
+        line = line.push(crate::widget::hover_cell(
+            container(
+                text("all")
+                    .size(size::META)
+                    .font(mono())
+                    .color(palette.firelight),
+            )
+            .padding(Padding::from([2, 6])),
+            Message::ClearProject,
+            &palette,
+        ));
+    }
+
+    container(line)
+        .padding(Padding::from([22, 14]).bottom(7))
+        .into()
+}
+
 /// A quiet lowercase word. Not an eyebrow, not tracked, no rule after it.
 fn group<'a>(name: &'a str, palette: &crate::theme::Palette) -> Element<'a> {
     container(
@@ -85,11 +120,16 @@ fn group<'a>(name: &'a str, palette: &crate::theme::Palette) -> Element<'a> {
 fn nav(den: &Den) -> Element<'_> {
     let palette = den.palette;
     let current = den.kind();
-    let open = den.vault.counts();
+    // Counts follow the scope: a project's numbers, or the vault's.
+    let scoped = den.scoped_tasks();
+    let open = scoped
+        .iter()
+        .filter(|t| t.status() != den_core::vault::Status::Done)
+        .count();
 
     let destinations = [
-        (Kind::Today, glyph::DAILY, Some(open.total - open.done)),
-        (Kind::Tasks, glyph::PROJECTS, Some(den.vault.counts().total)),
+        (Kind::Today, glyph::DAILY, Some(open)),
+        (Kind::Tasks, glyph::PROJECTS, Some(scoped.len())),
         (Kind::Roadmap, glyph::DUE, None),
     ];
 
@@ -141,7 +181,7 @@ fn workspace(den: &Den) -> Element<'_> {
     let palette = den.palette;
 
     let rows = den.vault.active().map(|entry| {
-        let selected = den.home_entry.as_ref() == Some(&entry.file);
+        let selected = den.project.as_ref() == Some(&entry.file);
         let open = entry.open_tasks().count();
 
         hover_row(
@@ -181,14 +221,18 @@ fn workspace(den: &Den) -> Element<'_> {
 
 fn tags(den: &Den) -> Element<'_> {
     let palette = den.palette;
-    let ranked = den.vault.tags.ranked();
+    let ranked = den.scoped_tags();
 
     if ranked.is_empty() {
         return container(
-            text("no tags yet")
-                .size(size::META)
-                .font(mono())
-                .color(palette.line2),
+            text(if den.project().is_some() {
+                "no tags in this project"
+            } else {
+                "no tags yet"
+            })
+            .size(size::META)
+            .font(mono())
+            .color(palette.line2),
         )
         .padding(Padding::from([0, 16]))
         .into();

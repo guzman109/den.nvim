@@ -162,95 +162,58 @@ impl Settings {
 
     fn appearance<'a>(&'a self, palette: &'a Palette, mode: Mode) -> Element<'a, Message> {
         // Following the system needs two choices, because Den has two dark
-        // variants and two light ones — so the mode picker sits above the
-        // variant list rather than replacing it.
+        // variants and two light ones — so the mode picker sits above a pair of
+        // variant columns rather than above one flat list of four. A single
+        // column could not say which of them "auto" would pick.
         let modes = row(Mode::ALL.map(|option| {
-            let active = mode == option;
-            button(
-                text(match option {
+            pill(
+                palette,
+                mode == option,
+                match option {
                     Mode::Auto => "follow system",
                     Mode::Dark => "always dark",
                     Mode::Light => "always light",
-                })
-                .size(size::ROW)
-                .font(fonts::mono())
-                .color(if active { palette.fg } else { palette.muted }),
+                },
+                Message::ChangeMode(option),
             )
-            .padding(Padding::from([6, 12]))
-            .on_press(Message::ChangeMode(option))
-            .style(move |_, status| {
-                let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
-                button::Style {
-                    background: (active || hovered).then_some(Background::Color(palette.card)),
-                    text_color: palette.fg,
-                    border: Border {
-                        radius: radius::CONTROL.into(),
-                        ..Border::default()
-                    },
-                    ..button::Style::default()
-                }
-            })
-            .into()
         }))
         .spacing(6);
 
-        let themes = column(Variant::ALL.map(|variant| {
-            let active = palette.variant == variant;
-            choice_row(
-                palette,
-                active,
-                text(variant.as_str())
-                    .size(size::ROW)
-                    .font(fonts::mono())
-                    .color(palette.fg)
-                    .width(Length::Fill)
-                    .into(),
-                Some(
-                    row(variant.swatches().map(|color| swatch(color, 13.0)))
-                        .spacing(2)
-                        .into(),
-                ),
-                Message::ChangeVariant(variant),
-            )
-        }))
-        .spacing(2);
+        let side =
+            |title: &'a str, variants: [Variant; 2]| {
+                column![
+                    text(title)
+                        .size(size::META)
+                        .font(fonts::mono())
+                        .color(palette.muted),
+                    gap(1, 9),
+                    column(variants.map(|variant| {
+                        variant_row(palette, palette.variant == variant, variant)
+                    }))
+                    .spacing(2),
+                ]
+                .width(Length::FillPortion(1))
+            };
 
-        let accents = column(Accent::ALL.map(|accent| {
-            let active = palette.accent == accent;
+        let accents = row(Accent::ALL.map(|accent| {
             let color = Palette::new(palette.variant, accent).hero;
-            choice_row(
+            swatch_pill(
                 palette,
-                active,
-                text(accent.as_str())
-                    .size(size::ROW)
-                    .font(fonts::mono())
-                    .color(palette.fg)
-                    .width(Length::Fill)
-                    .into(),
-                Some(swatch(color, 13.0)),
+                palette.accent == accent,
+                accent.as_str(),
+                color,
                 Message::ChangeAccent(accent),
             )
         }))
-        .spacing(2);
+        .spacing(6);
 
         let current = fonts::current_name();
         let families = column(fonts::installed().iter().map(|family| {
             let active = *family == current;
-            choice_row(
-                palette,
-                active,
-                // Rendered in the face itself, so the list previews each one.
-                text(*family)
-                    .size(size::ROW)
-                    .font(iced::Font::with_name(family))
-                    .color(palette.fg)
-                    .width(Length::Fill)
-                    .into(),
-                None,
-                Message::ChangeFont(family),
-            )
+            let bundled = *family == fonts::BUNDLED;
+            font_row(palette, active, family, bundled)
         }))
-        .spacing(2);
+        .spacing(1);
 
         column![
             heading(
@@ -260,26 +223,35 @@ impl Settings {
                  ones, so following still leaves you the choice below."
             ),
             modes,
-            gap(1, 14),
-            themes,
-            gap(1, 10),
+            gap(1, 18),
+            row![
+                side(
+                    "when the system is dark",
+                    [Variant::Ember, Variant::EmberSoft]
+                ),
+                side(
+                    "when the system is light",
+                    [Variant::EmberLight, Variant::EmberLighter]
+                ),
+            ]
+            .spacing(22),
+            gap(1, 26),
             heading(
                 palette,
                 "accent",
                 "Which hue the live task burns. Everything else keeps its meaning."
             ),
             accents,
-            gap(1, 10),
+            gap(1, 26),
             heading(
                 palette,
                 "font",
                 "Den ships Roboto Mono, so it always has a face it can draw. Anything \
-                 monospace installed here shows up too. Den never requests a family it \
-                 cannot find — iced would silently fall back to a proportional one.",
+                 monospace installed here shows up too.",
             ),
             families,
         ]
-        .spacing(8)
+        .spacing(10)
         .into()
     }
 
@@ -465,54 +437,142 @@ fn code<'a>(palette: &'a Palette, line: &'a str) -> Element<'a, Message> {
 }
 
 /// A selectable row with a radio mark, used by every list on this screen.
-fn choice_row<'a>(
+/// A compact toggle: the shape a small set of exclusive options wants, rather
+/// than a full-width row each.
+fn pill<'a>(
     palette: &'a Palette,
     active: bool,
-    body: Element<'a, Message>,
-    trailing: Option<Element<'a, Message>>,
+    label: &'a str,
     message: Message,
 ) -> Element<'a, Message> {
-    let mut content = row![
-        text(if active { "(•)" } else { "( )" })
-            .size(size::SMALL)
+    button(
+        text(label)
+            .size(size::ROW)
             .font(fonts::mono())
-            // Not the hero: that belongs to the live task alone.
-            .color(if active {
-                palette.firelight
-            } else {
-                palette.muted
-            }),
-        body,
-    ]
-    .spacing(10)
-    .align_y(Alignment::Center);
+            .color(if active { palette.fg } else { palette.muted }),
+    )
+    .padding(Padding::from([6, 12]))
+    .on_press(message)
+    .style(move |_, status| {
+        let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        button::Style {
+            background: (active || hovered).then_some(Background::Color(palette.card)),
+            text_color: palette.fg,
+            border: Border {
+                radius: radius::CONTROL.into(),
+                ..Border::default()
+            },
+            ..button::Style::default()
+        }
+    })
+    .into()
+}
 
-    if let Some(trailing) = trailing {
-        content = content.push(trailing);
-    }
+fn swatch_pill<'a>(
+    palette: &'a Palette,
+    active: bool,
+    label: &'a str,
+    color: iced::Color,
+    message: Message,
+) -> Element<'a, Message> {
+    button(
+        row![
+            swatch(color, 9.0),
+            text(label)
+                .size(size::ROW)
+                .font(fonts::mono())
+                .color(if active { palette.fg } else { palette.muted }),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center),
+    )
+    .padding(Padding::from([6, 12]))
+    .on_press(message)
+    .style(move |_, status| {
+        let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        button::Style {
+            background: (active || hovered).then_some(Background::Color(palette.card)),
+            text_color: palette.fg,
+            border: Border {
+                radius: radius::CONTROL.into(),
+                ..Border::default()
+            },
+            ..button::Style::default()
+        }
+    })
+    .into()
+}
 
-    button(content)
-        .width(Length::Fill)
-        .padding(Padding::from([6, 10]))
-        .on_press(message)
-        .style(move |_, status| {
-            let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
-            button::Style {
-                background: (active || hovered).then_some(Background::Color(palette.card)),
-                text_color: palette.fg,
-                border: Border {
-                    color: if active {
-                        palette.hero
-                    } else {
-                        iced::Color::TRANSPARENT
-                    },
-                    width: if active { 1.0 } else { 0.0 },
-                    radius: radius::CONTROL.into(),
-                },
-                ..button::Style::default()
-            }
-        })
-        .into()
+/// A variant, previewed by the five colours it actually changes.
+fn variant_row<'a>(palette: &'a Palette, active: bool, variant: Variant) -> Element<'a, Message> {
+    button(
+        row![
+            row(variant.swatches().map(|color| swatch(color, 11.0))).spacing(2),
+            text(variant.as_str())
+                .size(size::ROW)
+                .font(fonts::mono())
+                .color(if active { palette.fg } else { palette.dim })
+                .width(Length::Fill),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center),
+    )
+    .width(Length::Fill)
+    .padding(Padding::from([8, 10]))
+    .on_press(Message::ChangeVariant(variant))
+    .style(move |_, status| {
+        let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        button::Style {
+            background: (active || hovered).then_some(Background::Color(palette.card)),
+            text_color: palette.fg,
+            border: Border {
+                radius: radius::CONTROL.into(),
+                ..Border::default()
+            },
+            ..button::Style::default()
+        }
+    })
+    .into()
+}
+
+/// A font, previewed in its own face, labelled by where it came from.
+fn font_row<'a>(
+    palette: &'a Palette,
+    active: bool,
+    family: &'static str,
+    bundled: bool,
+) -> Element<'a, Message> {
+    button(
+        row![
+            text(family)
+                .size(size::ROW)
+                .font(iced::Font::with_name(family))
+                .color(if active { palette.fg } else { palette.dim })
+                .width(Length::Fill),
+            text(if bundled { "bundled" } else { "installed" })
+                .size(size::META)
+                .font(fonts::mono())
+                .color(palette.line2),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center),
+    )
+    .width(Length::Fill)
+    .padding(Padding::from([7, 10]))
+    .on_press(Message::ChangeFont(family))
+    .style(move |_, status| {
+        let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        button::Style {
+            background: (active || hovered).then_some(Background::Color(palette.card)),
+            text_color: palette.fg,
+            border: Border {
+                radius: radius::CONTROL.into(),
+                ..Border::default()
+            },
+            ..button::Style::default()
+        }
+    })
+    .into()
 }
 
 fn action_button<'a>(

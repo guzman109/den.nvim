@@ -33,8 +33,8 @@ pub fn view(den: &Den) -> Element<'_> {
     let palette = &den.palette;
     let start = week_start(den.today);
     let projects: Vec<&Entry> = den
-        .vault
-        .active()
+        .scoped_entries()
+        .into_iter()
         .filter(|entry| !entry.tasks.is_empty())
         .collect();
 

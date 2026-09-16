@@ -148,10 +148,7 @@ pub fn lit_surface<'a, Message: 'a>(
     palette: &Palette,
 ) -> Element<'a, Message> {
     let palette = *palette;
-    // Opaque stops, not a translucent overlay: a gradient interpolates between
-    // colours, so the warm end has to be the card already mixed with firelight.
-    let hot = palette.blend(palette.card, palette.firelight, 0.30);
-    let warm = palette.blend(palette.card, palette.firelight, 0.10);
+    let (hot, warm, base) = palette.firelight_stops();
 
     container(content)
         .padding(Padding::from([28, 30]).bottom(22))
@@ -163,13 +160,17 @@ pub fn lit_surface<'a, Message: 'a>(
                 iced::gradient::Linear::new(iced::Radians(std::f32::consts::FRAC_PI_4))
                     .add_stop(0.0, hot)
                     .add_stop(0.45, warm)
-                    .add_stop(1.0, palette.card)
+                    .add_stop(1.0, base)
                     .into(),
             )),
             border: Border {
                 radius: radius::CARD.into(),
                 ..Border::default()
             },
+            // On paper the pool cannot be brighter than the page, so the card is
+            // lifted off the ground instead. Dark variants get no shadow: light
+            // does not cast one on a floor it is lying on.
+            shadow: palette.lift(),
             ..container::Style::default()
         })
         .into()

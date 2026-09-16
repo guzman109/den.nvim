@@ -61,29 +61,58 @@ pub fn ember_png(size: u32) -> Option<&'static [u8]> {
     })
 }
 
-/// Decodes the variant's 256px icon for `window::Settings::icon`.
+/// The size the window icon is rasterised at.
 ///
-/// A missing or malformed icon is not worth failing a launch over — the window
-/// simply keeps the platform default.
+/// Large enough that macOS can downsample it for the Dock without softening
+/// the bear's edges.
+const ICON_PX: u32 = 512;
+
+/// Renders the variant's icon from its **SVG** for `window::Settings::icon`.
+///
+/// The PNGs are a fixed-resolution export of the same artwork; rasterising the
+/// vector means the icon is sharp at whatever size the platform asks for, and
+/// there is one source of truth for the mark rather than two that can drift.
+/// `resvg` is already in the tree — iced's `svg` feature pulls it — so this
+/// costs no new dependency.
+///
+/// A malformed icon is not worth failing a launch over: the window simply keeps
+/// the platform default.
 pub fn window_icon(variant: Variant) -> Option<iced::window::Icon> {
-    let decoder = png::Decoder::new(png_256(variant));
-    let mut reader = decoder.read_info().ok()?;
-    let mut buffer = vec![0; reader.output_buffer_size()];
-    let info = reader.next_frame(&mut buffer).ok()?;
-    buffer.truncate(info.buffer_size());
+    let tree = resvg::usvg::Tree::from_data(svg(variant), &resvg::usvg::Options::default()).ok()?;
 
-    let rgba = match info.color_type {
-        png::ColorType::Rgba => buffer,
-        png::ColorType::Rgb => buffer
-            .as_chunks::<3>()
-            .0
-            .iter()
-            .flat_map(|pixel| [pixel[0], pixel[1], pixel[2], 0xff])
-            .collect(),
-        _ => return None,
-    };
+    let size = tree.size();
+    let scale = ICON_PX as f32 / size.width().max(size.height());
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(ICON_PX, ICON_PX)?;
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
 
-    iced::window::icon::from_rgba(rgba, info.width, info.height).ok()
+    // resvg hands back premultiplied alpha; `from_rgba` wants it straight, and
+    // skipping the conversion darkens every partially transparent edge pixel.
+    let rgba = pixmap
+        .pixels()
+        .iter()
+        .flat_map(|pixel| {
+            let a = pixel.alpha();
+            let straighten = |c: u8| {
+                if a == 0 {
+                    0
+                } else {
+                    ((c as u16 * 255) / a as u16).min(255) as u8
+                }
+            };
+            [
+                straighten(pixel.red()),
+                straighten(pixel.green()),
+                straighten(pixel.blue()),
+                a,
+            ]
+        })
+        .collect();
+
+    iced::window::icon::from_rgba(rgba, ICON_PX, ICON_PX).ok()
 }
 
 #[cfg(test)]

@@ -874,6 +874,7 @@ dependencies = [
  "iced",
  "jiff",
  "png 0.17.16",
+ "resvg",
  "rmpv",
  "serde",
  "serde_json",

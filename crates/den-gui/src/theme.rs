@@ -451,6 +451,56 @@ impl Palette {
         self.hue(TAG_HUES[usize::from(slot) % TAG_HUES.len()])
     }
 
+    /// The three stops of the firelight pool: hot, warm, and the plain ground.
+    ///
+    /// Dark and light need opposite treatments and the first version only had
+    /// one. Blending the card toward the accent *darkens* it on a paper ground,
+    /// so the lit surface came out murkier than the page around it — the exact
+    /// inverse of "this is the thing in the light". On light variants the pool
+    /// therefore brightens toward warm white and leans on a shadow to lift the
+    /// card, which is how paper actually shows light.
+    pub fn firelight_stops(&self) -> (Color, Color, Color) {
+        if self.variant.is_dark() {
+            (
+                self.blend(self.card, self.firelight, 0.30),
+                self.blend(self.card, self.firelight, 0.10),
+                self.card,
+            )
+        } else {
+            // Toward a warm white, not toward the accent.
+            let glow = Color {
+                r: 1.0,
+                g: 0.96,
+                b: 0.88,
+                a: 1.0,
+            };
+            (
+                self.blend(self.card, glow, 0.85),
+                self.blend(self.card, glow, 0.45),
+                self.card,
+            )
+        }
+    }
+
+    /// The shadow that lifts a lit surface off a paper ground.
+    ///
+    /// Zero on dark variants: a pool of light does not cast a shadow on the
+    /// floor it is cast onto.
+    pub fn lift(&self) -> iced::Shadow {
+        if self.variant.is_dark() {
+            iced::Shadow::default()
+        } else {
+            iced::Shadow {
+                color: Color {
+                    a: 0.16,
+                    ..self.ramp.base8
+                },
+                offset: iced::Vector::new(0.0, 2.0),
+                blur_radius: 14.0,
+            }
+        }
+    }
+
     /// The firelight wash beneath the live task.
     ///
     /// Held here rather than written as a literal at each call site so the pool

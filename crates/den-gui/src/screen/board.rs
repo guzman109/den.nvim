@@ -90,10 +90,40 @@ fn name(status: Status) -> &'static str {
     }
 }
 
-fn card<'a>(den: &'a Den, task: &'a VaultTask, status: Status) -> Element<'a> {
+/// The card as it appears under the cursor mid-drag.
+///
+/// The same element the column draws, not a stand-in: a drag that shows you a
+/// different, smaller thing than the one you grabbed reads as a glitch. It is
+/// drawn on its own opaque ground with a shadow so it clearly sits *above* the
+/// board rather than in it.
+pub fn ghost<'a>(den: &'a Den, task: &'a VaultTask) -> Element<'a> {
+    let palette = den.palette;
+    container(body(den, task, task.status()))
+        .width(Length::Fixed(300.0))
+        .padding(Padding::from([14, 14]))
+        .style(move |_| container::Style {
+            background: Some(Background::Color(palette.card_alt)),
+            border: Border {
+                color: palette.firelight,
+                width: 1.0,
+                radius: radius::CARD.into(),
+            },
+            shadow: iced::Shadow {
+                color: iced::Color {
+                    a: 0.35,
+                    ..iced::Color::BLACK
+                },
+                offset: iced::Vector::new(0.0, 6.0),
+                blur_radius: 20.0,
+            },
+            ..container::Style::default()
+        })
+        .into()
+}
+
+/// A card's contents: title, then tags and either a due date or its note.
+fn body<'a>(den: &'a Den, task: &'a VaultTask, status: Status) -> Element<'a> {
     let palette = &den.palette;
-    let location = Location::of(task);
-    let dragging = den.drag.as_ref() == Some(&location);
     let hot = status == Status::Doing;
     let out = status == Status::Done;
 
@@ -128,33 +158,45 @@ fn card<'a>(den: &'a Den, task: &'a VaultTask, status: Status) -> Element<'a> {
         }
     }
 
-    let body = column![
+    column![
         text(task.title().to_string())
             .size(if hot { size::SECTION } else { size::ROW })
             .font(mono())
             .color(if out { palette.muted } else { palette.fg }),
         gap(1, 9),
         meta,
-    ];
+    ]
+    .into()
+}
+
+fn card<'a>(den: &'a Den, task: &'a VaultTask, status: Status) -> Element<'a> {
+    let palette = &den.palette;
+    let location = Location::of(task);
+    let dragging = den.drag.as_ref() == Some(&location);
+    let hot = status == Status::Doing;
+    let body = body(den, task, status);
 
     let surface: Element<'_> = if hot {
-        // The same firelight as the live task, at the same angle, so the board
-        // and Today agree about where the light comes from.
-        let warm = palette.blend(palette.card, palette.firelight, 0.22);
+        // The same firelight as the live task, through the same stops, so the
+        // board and Today agree about where the light comes from — and so light
+        // variants brighten rather than darken.
+        let palette = *palette;
+        let (hot_stop, _, base) = palette.firelight_stops();
         container(body)
             .width(Length::Fill)
             .padding(Padding::from([14, 14]))
             .style(move |_| container::Style {
                 background: Some(Background::Gradient(
                     iced::gradient::Linear::new(iced::Radians(std::f32::consts::FRAC_PI_4))
-                        .add_stop(0.0, warm)
-                        .add_stop(1.0, palette.card)
+                        .add_stop(0.0, hot_stop)
+                        .add_stop(1.0, base)
                         .into(),
                 )),
                 border: Border {
                     radius: radius::CARD.into(),
                     ..Border::default()
                 },
+                shadow: palette.lift(),
                 ..container::Style::default()
             })
             .into()

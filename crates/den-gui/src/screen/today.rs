@@ -78,8 +78,8 @@ fn live(den: &Den) -> Option<&VaultTask> {
     {
         return Some(task);
     }
-    den.vault
-        .tasks()
+    den.scoped_tasks()
+        .into_iter()
         .filter(|task| task.status() == Status::Doing)
         .min_by_key(|task| task.parsed.order.unwrap_or(u64::MAX))
 }
@@ -91,8 +91,8 @@ fn live(den: &Den) -> Option<&VaultTask> {
 /// mark without taking the light.
 fn next<'a>(den: &'a Den, lit: Option<&(std::path::PathBuf, usize)>) -> Vec<&'a VaultTask> {
     let mut tasks: Vec<&VaultTask> = den
-        .vault
-        .tasks()
+        .scoped_tasks()
+        .into_iter()
         .filter(|task| task.status() != Status::Done)
         .filter(|task| !lit.is_some_and(|(file, line)| task.file == *file && task.line == *line))
         .collect();
@@ -111,8 +111,8 @@ fn next<'a>(den: &'a Den, lit: Option<&(std::path::PathBuf, usize)>) -> Vec<&'a 
 
 /// What closed today, newest first.
 fn cooling(den: &Den) -> Vec<&VaultTask> {
-    den.vault
-        .tasks()
+    den.scoped_tasks()
+        .into_iter()
         .filter(|task| task.status() == Status::Done)
         .filter(|task| den.history.closed_on(task) == Some(den.today))
         .collect()
@@ -340,8 +340,9 @@ fn task_row<'a>(den: &'a Den, task: &'a VaultTask, closed: bool) -> Element<'a> 
 /// small series, it costs one text node, and it survives any scale factor.
 fn week(den: &Den) -> Element<'_> {
     let palette = &den.palette;
-    let counts = den.vault.counts();
-    let projects = den.vault.active().count();
+    let scoped = den.scoped_tasks();
+    let open = scoped.iter().filter(|t| t.status() != Status::Done).count();
+    let projects = den.scoped_entries().len();
     let days = closures_this_week(den);
     let closed: usize = days.iter().sum();
 
@@ -354,9 +355,8 @@ fn week(den: &Den) -> Element<'_> {
             .color(palette.olive),
         gap(1, 12),
         text(format!(
-            "{} closed since Monday\n{} open across {projects} projects",
-            closed,
-            counts.total.saturating_sub(counts.done),
+            "{closed} closed since Monday\n{open} open across {projects} project{}",
+            if projects == 1 { "" } else { "s" },
         ))
         .size(size::META)
         .font(mono())
@@ -370,8 +370,8 @@ fn closures_this_week(den: &Den) -> Vec<usize> {
     (0..7)
         .map(|back| den_core::date::add_days(den.today, back - 6))
         .map(|day| {
-            den.vault
-                .tasks()
+            den.scoped_tasks()
+                .into_iter()
                 .filter(|task| den.history.closed_on(task) == Some(day))
                 .count()
         })

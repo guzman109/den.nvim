@@ -165,6 +165,7 @@ pub enum Message {
     QueryChanged(String),
     SearchFocused,
 
+    ClearProject,
     SetTaskView(TaskView),
     CursorMoved(iced::Point),
 
@@ -248,7 +249,13 @@ pub struct Den {
     pub link: Link,
 
     pub selected: Option<Location>,
-    pub home_entry: Option<PathBuf>,
+    /// The project everything is scoped to, or the whole vault.
+    ///
+    /// This used to be "the note the home view happens to show", which meant
+    /// selecting a project in the sidebar changed exactly one screen and every
+    /// other view stayed vault-wide. A project you have selected has to mean
+    /// something everywhere or it means nothing.
+    pub project: Option<PathBuf>,
 
     pub query: String,
     pub search_active: bool,
@@ -310,9 +317,8 @@ impl Den {
         history.save();
 
         let editor = options.socket.map(Editor::new);
-        let home_entry = default_home_entry(&vault);
 
-        let den = Den {
+        let mut den = Den {
             palette,
             scale: options.scale,
             sidebar_open: true,
@@ -334,7 +340,7 @@ impl Den {
             },
             editor,
             selected: None,
-            home_entry,
+            project: None,
             query: String::new(),
             search_active: false,
             capture: None,
@@ -368,6 +374,10 @@ impl Den {
             pending_goto: false,
             keymap,
         };
+
+        // The first frame already honours --mode, rather than waiting for a
+        // poll that never comes for the pinned modes.
+        den.resolve_palette();
 
         (den, Task::none())
     }
@@ -444,10 +454,14 @@ impl Den {
                 self.selected = Some(location);
             }
             Message::FocusEntry(file) => {
-                self.home_entry = Some(file);
-                self.show(Kind::Tasks);
+                self.project = if self.project.as_ref() == Some(&file) {
+                    None
+                } else {
+                    Some(file)
+                };
             }
 
+            Message::ClearProject => self.project = None,
             Message::CursorMoved(point) => self.cursor = point,
             Message::SetTaskView(view) => {
                 self.task_view = view;
@@ -611,7 +625,7 @@ impl Den {
 
             Message::Reload => return self.reload(),
             Message::Poll => {
-                self.follow_system_theme();
+                self.resolve_palette();
                 if let Some(index) = &mut self.index {
                     let _ = index.refresh(&self.vault);
                 }
@@ -862,8 +876,8 @@ impl Den {
         };
 
         let mut tasks: Vec<&VaultTask> = self
-            .vault
-            .tasks()
+            .scoped_tasks()
+            .into_iter()
             .filter(|task| self.due_filter.matches(task, self.today))
             .filter(|task| match &self.tag_filter {
                 Some(tag) => task.tags().iter().any(|t| t == tag),
@@ -911,12 +925,51 @@ impl Den {
         self.vault.task_at(&location.file, location.line)
     }
 
-    /// The entry the home view is showing.
-    pub fn home_entry(&self) -> Option<&den_core::vault::Entry> {
-        self.home_entry
+    /// The entry the app is scoped to, if any.
+    pub fn project(&self) -> Option<&den_core::vault::Entry> {
+        self.project
             .as_ref()
             .and_then(|file| self.vault.entry(file))
-            .or_else(|| self.vault.active().next())
+    }
+
+    /// Every task the current scope admits.
+    ///
+    /// The single place screens ask "which tasks am I about". Before this, each
+    /// of them called `vault.tasks()` and got the whole vault, so the sidebar's
+    /// project selection was decoration.
+    pub fn scoped_tasks(&self) -> Vec<&VaultTask> {
+        match self.project() {
+            Some(entry) => entry.tasks.iter().collect(),
+            None => self.vault.tasks().collect(),
+        }
+    }
+
+    /// The entries the current scope admits — one project, or all of them.
+    pub fn scoped_entries(&self) -> Vec<&den_core::vault::Entry> {
+        match self.project() {
+            Some(entry) => vec![entry],
+            None => self.vault.active().collect(),
+        }
+    }
+
+    /// Tags present in the current scope, ranked, so the sidebar lists the
+    /// project's vocabulary rather than the whole vault's.
+    pub fn scoped_tags(&self) -> Vec<(&str, u8, usize)> {
+        let Some(entry) = self.project() else {
+            return self.vault.tags.ranked();
+        };
+        let mut counts: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+        for task in &entry.tasks {
+            for tag in task.tags() {
+                *counts.entry(tag.as_str()).or_default() += 1;
+            }
+        }
+        let mut ranked: Vec<(&str, u8, usize)> = counts
+            .into_iter()
+            .map(|(tag, count)| (tag, self.vault.tags.slot(tag), count))
+            .collect();
+        ranked.sort_by(|a, b| b.2.cmp(&a.2).then(a.0.cmp(b.0)));
+        ranked
     }
 
     /// True only when the vault directory refuses writes.
@@ -943,16 +996,17 @@ impl Den {
     /// decide where it belongs yet, and making the user choose a note is the
     /// thing that stops people capturing at all. The inbox note is created if
     /// absent, never overwritten if present.
-    /// Re-resolves the palette when the system appearance has moved.
+    /// Resolves the palette from the mode and the two variant choices.
+    ///
+    /// Runs at startup and on every poll, for *every* mode — not only `Auto`.
+    /// Skipping the pinned modes was a real bug: `--mode light` stored the mode
+    /// and then never applied it, so the app launched dark and stayed dark.
     ///
     /// Polled rather than subscribed: the app already ticks, the check is a
     /// cheap platform query, and it avoids a second subscription whose closure
     /// would capture stale state — the bug that made the first keymap subtly
     /// wrong.
-    fn follow_system_theme(&mut self) {
-        if self.mode != crate::theme::Mode::Auto {
-            return;
-        }
+    fn resolve_palette(&mut self) {
         let wanted = self.mode.resolve(self.dark_variant, self.light_variant);
         if wanted != self.palette.variant {
             self.palette = Palette::new(wanted, self.palette.accent);
@@ -1208,12 +1262,14 @@ impl Den {
         {
             self.selected = None;
         }
+        // A scope whose note has gone falls back to the whole vault rather
+        // than to some other project the user never picked.
         if self
-            .home_entry
+            .project
             .as_ref()
-            .is_none_or(|file| self.vault.entry(file).is_none())
+            .is_some_and(|file| self.vault.entry(file).is_none())
         {
-            self.home_entry = default_home_entry(&self.vault);
+            self.project = None;
         }
     }
 
@@ -1278,18 +1334,6 @@ pub struct Command {
     pub label: String,
     pub hint: String,
     pub message: Message,
-}
-
-fn default_home_entry(vault: &Vault) -> Option<PathBuf> {
-    // Prefer a project with open work; the home view is built around one.
-    vault
-        .active()
-        .find(|entry| {
-            entry.kind == den_core::vault::Kind::Projects && entry.open_tasks().count() > 0
-        })
-        .or_else(|| vault.active().find(|entry| entry.open_tasks().count() > 0))
-        .or_else(|| vault.active().next())
-        .map(|entry| entry.file.clone())
 }
 
 /// Raw key presses; `Den::on_key` gives them meaning.
@@ -1380,5 +1424,112 @@ mod capture_tests {
         // Same slug, and the suffix is what separates them.
         let a = fresh_id("same words");
         assert!(a.starts_with("same-words-"));
+    }
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+
+    /// A two-project scratch vault, well away from any real notes.
+    fn app() -> Den {
+        let dir = std::env::temp_dir().join(format!("den-scope-{}", std::process::id()));
+        let projects = dir.join("projects");
+        std::fs::create_dir_all(&projects).expect("scratch");
+        std::fs::write(
+            projects.join("a.md"),
+            "# Alpha\n\n## Next actions\n\n- [ ] One @tag(red) @id(a1)\n- [x] Two @tag(red) @id(a2)\n",
+        )
+        .expect("a");
+        std::fs::write(
+            projects.join("b.md"),
+            "# Beta\n\n## Next actions\n\n- [ ] Three @tag(blue) @id(b1)\n",
+        )
+        .expect("b");
+
+        let options = crate::Options {
+            root: dir,
+            ..crate::Options::default()
+        };
+        Den::new(options).0
+    }
+
+    #[test]
+    fn no_project_means_the_whole_vault() {
+        let den = app();
+        assert!(den.project().is_none(), "nothing is scoped at startup");
+        assert_eq!(den.scoped_tasks().len(), 3);
+        assert_eq!(den.scoped_entries().len(), 2);
+        let tags: Vec<&str> = den.scoped_tags().iter().map(|(t, _, _)| *t).collect();
+        assert!(tags.contains(&"red") && tags.contains(&"blue"));
+    }
+
+    /// The bug this whole scope exists to fix: selecting a project used to
+    /// change exactly one screen while every other view stayed vault-wide.
+    #[test]
+    fn selecting_a_project_narrows_tasks_entries_and_tags() {
+        let mut den = app();
+        let beta = den
+            .vault
+            .active()
+            .find(|e| e.title == "Beta")
+            .expect("beta")
+            .file
+            .clone();
+
+        let _ = den.update(Message::FocusEntry(beta.clone()));
+
+        assert_eq!(den.project().map(|e| e.title.as_str()), Some("Beta"));
+        assert_eq!(den.scoped_tasks().len(), 1, "only Beta's task");
+        assert_eq!(den.scoped_entries().len(), 1);
+        let tags: Vec<&str> = den.scoped_tags().iter().map(|(t, _, _)| *t).collect();
+        assert_eq!(tags, vec!["blue"], "the sidebar lists this project's tags");
+        // The board reads through the same scope.
+        assert_eq!(den.tasks_with_status(Status::Backlog).len(), 1);
+        assert_eq!(den.tasks_with_status(Status::Done).len(), 0);
+    }
+
+    #[test]
+    fn selecting_the_same_project_again_clears_the_scope() {
+        let mut den = app();
+        let alpha = den
+            .vault
+            .active()
+            .find(|e| e.title == "Alpha")
+            .expect("alpha")
+            .file
+            .clone();
+
+        let _ = den.update(Message::FocusEntry(alpha.clone()));
+        assert!(den.project().is_some());
+        // Clicking the selected project is the way back out.
+        let _ = den.update(Message::FocusEntry(alpha));
+        assert!(den.project().is_none());
+        assert_eq!(den.scoped_tasks().len(), 3);
+    }
+
+    #[test]
+    fn a_pinned_mode_is_applied_at_startup() {
+        // `--mode light` used to be stored and never applied, so the app
+        // launched dark and stayed dark until a poll that never came.
+        let dir = std::env::temp_dir().join(format!("den-mode-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("scratch");
+        for (mode, dark) in [
+            (crate::theme::Mode::Light, false),
+            (crate::theme::Mode::Dark, true),
+        ] {
+            let den = Den::new(crate::Options {
+                root: dir.clone(),
+                mode,
+                ..crate::Options::default()
+            })
+            .0;
+            assert_eq!(
+                den.palette.variant.is_dark(),
+                dark,
+                "{} did not reach the first frame",
+                mode.as_str()
+            );
+        }
     }
 }

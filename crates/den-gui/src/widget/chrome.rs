@@ -61,37 +61,16 @@ pub fn view(den: &Den) -> Element<'_> {
 fn drag_ghost(den: &Den) -> Option<Element<'_>> {
     let location = den.drag.as_ref()?;
     let task = den.vault.task_at(&location.file, location.line)?;
-    let palette = den.palette;
-
-    let card = container(
-        text(task.title().to_string())
-            .size(size::ROW)
-            .font(mono())
-            .color(palette.fg)
-            .wrapping(iced::widget::text::Wrapping::None),
-    )
-    .padding(Padding::from([10, 13]))
-    .max_width(260)
-    .clip(true)
-    .style(move |_| container::Style {
-        background: Some(Background::Color(palette.card_alt)),
-        border: Border {
-            color: palette.firelight,
-            width: 1.0,
-            radius: radius::CARD.into(),
-        },
-        ..container::Style::default()
-    });
 
     // Offset so the card hangs below-right of the pointer rather than under it,
     // which would put the cursor on top of the text it is carrying.
     Some(
-        container(card)
+        container(board::ghost(den, task))
             .width(Length::Fill)
             .height(Length::Fill)
             .padding(Padding {
-                top: (den.cursor.y + 12.0).max(0.0),
-                left: (den.cursor.x + 12.0).max(0.0),
+                top: (den.cursor.y + 10.0).max(0.0),
+                left: (den.cursor.x + 10.0).max(0.0),
                 right: 0.0,
                 bottom: 0.0,
             })
