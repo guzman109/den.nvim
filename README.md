@@ -7,8 +7,8 @@ first way in. Den keeps time, keeps a journal, and nags you to go outside.
 The plan, decisions and progress live in [PLAN.md](PLAN.md),
 [TASKS.md](TASKS.md) and [LOGS.md](LOGS.md).
 
-> Den replaces the older den.nvim plugin and uses the same `den` module name.
-> Remove den.nvim before installing this one.
+> This is a rewrite of the older den.nvim, with the same `den` module name.
+> Remove an old copy before installing this one.
 
 ## Install
 
@@ -16,7 +16,7 @@ Neovim 0.11 or later (LuaJIT). macOS or Linux, on arm64 or x86_64.
 
 ```lua
 -- Neovim 0.12, built-in package manager
-vim.pack.add({ "https://github.com/guzman109/Den" })
+vim.pack.add({ "https://github.com/guzman109/den.nvim" })
 require("den").setup({ vault = "~/Notes/den" })
 ```
 

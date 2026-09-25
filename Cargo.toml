@@ -6,7 +6,7 @@ resolver = "3"
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
-repository = "https://github.com/guzman109/Den"
+repository = "https://github.com/guzman109/den.nvim"
 
 [workspace.dependencies]
 age = { version = "0.12", features = ["armor"] }
