@@ -125,7 +125,7 @@ function M.install(opts, done)
             -- never leaves a mix of versions.
             local files = vim.tbl_filter(function(file)
               return vim.uv.fs_stat(dir .. "/" .. file) ~= nil
-            end, { "lua/den_native.so", "bin/den", "bin/den-agent" })
+            end, { "lua/den_native.so", "bin/den", "bin/den-agent", "bin/den-mcp" })
             local moved = true
             for _, file in ipairs(files) do
               local staged = root .. "/" .. file .. ".new"

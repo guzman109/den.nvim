@@ -454,6 +454,31 @@ fn respond(conn: u64, request: Request, state: &Shared) -> Result<Response, Stri
                 ..Response::default()
             })
         }
+        Request::ReadConfirmed { vault, path } => {
+            let root = vault_root(&vault)?;
+            if !den_core::vault::classify(&path).is_some_and(|(_, locked)| locked) {
+                return Err(format!("{path} is not a locked note"));
+            }
+            let file = den_core::write::resolve(&root, &path).map_err(err)?;
+            let armored = std::fs::read_to_string(&file).map_err(|e| format!("{path}: {e}"))?;
+            // Only an unlocked vault can be read, and never without the
+            // person: the confirmation comes first, whoever unlocked it.
+            if !lock_state(state).keys.contains_key(&root) {
+                return Err("the vault is locked; the person has to unlock it first".into());
+            }
+            let shown: String = path.chars().filter(|c| !c.is_control()).take(120).collect();
+            platform::confirm_presence(&format!("let an AI agent read {shown}"))?;
+            let mut s = lock_state(state);
+            let held = s.keys.get_mut(&root).ok_or("the vault is locked")?;
+            held.last_used = Instant::now();
+            let plain = held.key.decrypt(&armored).map_err(err)?;
+            Ok(Response {
+                ok: true,
+                unlocked: true,
+                text: Some(plain.as_str().to_string()),
+                ..Response::default()
+            })
+        }
         Request::Lock => {
             lock_state(state).keys.clear();
             Ok(Response {

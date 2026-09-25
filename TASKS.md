@@ -118,9 +118,11 @@ finished. Milestones and exit criteria are in [PLAN.md](PLAN.md).
 
 ## M9 · Agent
 
-- [ ] MCP server: read tools and safe write tools through the engine #agent
-- [ ] Read-only nudge status, no off switch #agent
-- [ ] Locked notes only through den-agent, with confirmation #agent
+- [x] MCP server: read tools and safe write tools through the engine (`den-mcp`, 21 tools) #agent @done(2026-09-24)
+- [x] Read-only nudge status, no off switch #agent @done(2026-09-24)
+- [x] Locked notes only through den-agent, with a fingerprint confirmation per read #agent @done(2026-09-24)
+- [x] Agents never write a file the person has unsaved changes to in Neovim #agent @done(2026-09-24)
+- [ ] Try `read_locked_note` with Touch ID (needs the owner's finger) #agent
 - [ ] Local embeddings with sqlite-vec, if search by meaning turns out to be missing #agent
 
 ## Spikes

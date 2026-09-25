@@ -308,6 +308,67 @@ impl Vault {
         self.new_file(path, text)
     }
 
+    /// Adds a line to a journal page, at the end of its first section (the
+    /// template's *On my mind*), creating the page from the template when
+    /// it does not exist yet. Locked pages are refused: nothing is written
+    /// into a page Den cannot read.
+    pub fn plan_journal_add(&self, date: Date, text: &str) -> Result<Vec<Change>> {
+        let line = one_line(text)?;
+        let path = daily_path(date);
+        if self.doc(&format!("{path}.age")).is_some()
+            || crate::lock::folder_is_locked(self.root(), "daily")
+        {
+            return Err(Error::Lock(format!(
+                "{path} is locked; add to it in the editor"
+            )));
+        }
+        let (before, text) = match self.doc(&path) {
+            Some(doc) => (Some(doc.text.clone()), doc.text.clone()),
+            None => {
+                let created = self.plan_daily(date)?;
+                let first = created
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| Error::Invalid(format!("{path} could not be created")))?;
+                (None, first.after)
+            }
+        };
+        let mut buf = TextBuf::parse(&text);
+        let parsed = parse(&buf);
+        let first = parsed
+            .headings
+            .iter()
+            .enumerate()
+            .find(|(_, h)| h.level >= 2);
+        let at = match first {
+            Some((i, h)) => {
+                let end = parsed.headings[i + 1..]
+                    .iter()
+                    .find(|n| n.level <= h.level)
+                    .map_or(buf.lines.len(), |n| n.line);
+                last_content_line(&buf.lines, h.line + 1, end).map_or(h.line + 1, |l| l + 1)
+            }
+            None => last_content_line(&buf.lines, 0, buf.lines.len()).map_or(0, |l| l + 1),
+        };
+        // Headings keep a blank line on either side, as Markdown likes it.
+        let is_heading = |l: &String| l.trim_start().starts_with('#');
+        let mut at = at;
+        let mut insert = vec![line];
+        if at > 0 && is_heading(&buf.lines[at - 1]) {
+            if buf.lines.get(at).is_some_and(|l| l.trim().is_empty()) {
+                at += 1;
+            } else {
+                insert.insert(0, String::new());
+            }
+        }
+        if buf.lines.get(at).is_some_and(is_heading) {
+            insert.push(String::new());
+        }
+        buf.lines.splice(at..at, insert);
+        buf.trailing = true;
+        Ok(vec![Change::write(path, before, buf.render())])
+    }
+
     fn project_doc(&self, name: &str) -> Result<&Doc> {
         let project = self
             .project(name)

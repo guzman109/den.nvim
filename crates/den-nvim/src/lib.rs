@@ -410,7 +410,15 @@ fn root(_: &Lua, _: ()) -> LuaResult<String> {
 }
 
 fn set_overlay(_: &Lua, (path, text): (String, Option<String>)) -> LuaResult<()> {
-    with(|e| e.vault_mut()?.set_overlay(&path, text).map_err(err))
+    with(|e| {
+        let vault = e.vault_mut()?;
+        vault.set_overlay(&path, text).map_err(err)?;
+        // Other writers (an agent's MCP server) keep off these files.
+        if let Some(state) = den_core::editing::state_home() {
+            den_core::editing::publish(&state, vault.root(), &vault.dirty());
+        }
+        Ok(())
+    })
 }
 
 fn reload(_: &Lua, path: String) -> LuaResult<bool> {

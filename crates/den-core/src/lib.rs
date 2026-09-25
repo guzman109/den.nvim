@@ -17,6 +17,7 @@
 pub mod agent;
 pub mod config;
 pub mod conflict;
+pub mod editing;
 pub mod error;
 pub mod frontmatter;
 pub mod lock;

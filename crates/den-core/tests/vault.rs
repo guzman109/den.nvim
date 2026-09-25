@@ -539,3 +539,29 @@ fn the_vault_does_not_follow_links_out_of_itself() {
     assert!(vault.doc("notes/away/elsewhere.md").is_none());
     assert!(vault.doc("notes/linked.md").is_none());
 }
+
+#[test]
+fn a_journal_line_goes_under_the_first_section_of_a_new_or_existing_page() {
+    let (dir, vault) = scratch();
+    let root = dir.path();
+    let day = date(2026, 10, 2);
+    let changes = vault.plan_journal_add(day, "Walked by the river").unwrap();
+    assert_eq!(changes[0].before, None);
+    let text = &changes[0].after;
+    assert!(
+        text.contains("## On my mind\n\nWalked by the river\n\n## Went well"),
+        "{text}"
+    );
+    apply(root, &changes, &BTreeSet::new()).unwrap();
+
+    let vault = Vault::open(root).unwrap();
+    let changes = vault.plan_journal_add(day, "Called Mum").unwrap();
+    assert!(
+        changes[0]
+            .after
+            .contains("## On my mind\n\nWalked by the river\nCalled Mum\n\n## Went well"),
+        "{}",
+        changes[0].after
+    );
+    assert!(vault.plan_journal_add(day, "   ").is_err(), "empty text");
+}

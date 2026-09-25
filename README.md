@@ -217,6 +217,33 @@ lock: { forget_after_minutes: 15, max_hours: 8, strict: false }   # strict: each
 What locking does and does not protect against is spelled out in PLAN.md
 (Locking).
 
+## With an AI agent (MCP)
+
+`bin/den-mcp` is an MCP server: an AI agent such as Claude Code or Claude
+Desktop gets Den's own actions instead of raw file access. It can read
+projects, tasks, the inbox, insights, notes, the journal, the review and
+the timer; search; capture, add, edit, move and close tasks; make notes;
+add a line to the journal; and start or stop the timer. Every change goes
+through the same checks as in Neovim.
+
+For Claude Code, once:
+
+```sh
+claude mcp add --scope user den -- /path/to/Den/bin/den-mcp
+```
+
+For Claude Desktop, in its MCP settings:
+
+```json
+{ "mcpServers": { "den": { "command": "/path/to/Den/bin/den-mcp" } } }
+```
+
+What an agent cannot do: open a locked note unless you confirm that one
+read with your fingerprint (Touch ID, macOS; the vault must be unlocked);
+write to a file you have unsaved changes to in Neovim; turn break nudges
+off or change any setting; run git or reach anything outside the vault. It
+is told that text in your notes is your data, not instructions to it.
+
 ## Settings
 
 `~/.config/den/config.yaml` (all optional):

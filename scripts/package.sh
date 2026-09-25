@@ -22,20 +22,20 @@ esac
 # roots, not the builder's home folder.
 RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$HOME=/home --remap-path-prefix=$(pwd)=/den"
 export RUSTFLAGS
-cargo build --release --locked -p den-nvim -p den-cli -p den-agent
+cargo build --release --locked -p den-nvim -p den-cli -p den-agent -p den-mcp
 
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 mkdir -p "$stage/lua" "$stage/bin"
 cp "target/release/$lib" "$stage/lua/den_native.so"
-cp target/release/den target/release/den-agent "$stage/bin/"
+cp target/release/den target/release/den-agent target/release/den-mcp "$stage/bin/"
 if [ "$(uname -s)" = Darwin ]; then
   # An ad-hoc signature, so the files load on Apple silicon after a copy,
   # with the hardened runtime for the programs, so nothing can be injected
   # into den-agent. (A Developer ID signature, for a keychain entry that
   # survives updates, is the owner's to add; see PLAN.md, Locking.)
   codesign --force --sign - "$stage/lua/den_native.so"
-  codesign --force --options runtime --sign - "$stage/bin/den" "$stage/bin/den-agent"
+  codesign --force --options runtime --sign - "$stage/bin/den" "$stage/bin/den-agent" "$stage/bin/den-mcp"
 fi
 
 mkdir -p dist

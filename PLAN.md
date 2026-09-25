@@ -304,7 +304,7 @@ to a pipe Neovim is watching; Lua wakes up and collects it.
 | M6 | Review, journal, nudges | Review with kitty charts, journal pages with day facts, break nudges with the human-only off switch |
 | M7 | Locking | Lock/unlock with Touch ID, YubiKey and password; nothing unencrypted reaches disk or logs |
 | M8 | Desktop | A Dioxus app, designed separately, over the same engine |
-| M9 | Agent | An MCP server exposing Den's actions safely |
+| M9 | Agent | An MCP server exposing Den's actions safely (built: `den-mcp`) |
 
 ## Dependencies
 

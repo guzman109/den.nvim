@@ -72,6 +72,15 @@ pub enum Request {
         vault: PathBuf,
         current: String,
     },
+    /// Reads a locked note for an AI agent. The person confirms each read
+    /// with a fingerprint (or their login password), shown the note's path,
+    /// even while the vault is unlocked; the agent reads the file itself so
+    /// the prompt always names what is decrypted.
+    ReadConfirmed {
+        vault: PathBuf,
+        /// The locked note's vault path (`notes/x.md.age`).
+        path: String,
+    },
     /// Forgets every key now.
     Lock,
     /// Forgets every key and exits.
@@ -88,6 +97,7 @@ impl std::fmt::Debug for Request {
             Request::SetPassword { .. } => "set_password",
             Request::AddYubikey { .. } => "add_yubikey",
             Request::EnableTouchId { .. } => "enable_touch_id",
+            Request::ReadConfirmed { .. } => "read_confirmed",
             Request::Lock => "lock",
             Request::Stop => "stop",
         };

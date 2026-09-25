@@ -85,6 +85,35 @@ mod touch_id {
             .map_err(|e| format!("keychain: {e}"))
     }
 
+    /// Asks the person for a fingerprint (or their login password). The
+    /// system dialog reads "den-agent is trying to <reason>".
+    pub fn confirm(reason: &str) -> Result<(), String> {
+        let policy = PolicyBuilder::new()
+            .biometrics(Some(BiometricStrength::Strong))
+            .password(true)
+            .build()
+            .ok_or("Touch ID is not available")?;
+        let text = Text {
+            android: AndroidText {
+                title: "Den",
+                subtitle: None,
+                description: None,
+            },
+            apple: reason,
+            windows: WindowsText::new_truncated("Den", reason),
+        };
+        let (tx, rx) = mpsc::channel();
+        Context::new(())
+            .authenticate(text, &policy, move |result| {
+                let _ = tx.send(result.is_ok());
+            })
+            .map_err(|e| format!("Touch ID: {e:?}"))?;
+        match rx.recv_timeout(Duration::from_secs(120)) {
+            Ok(true) => Ok(()),
+            _ => Err("Touch ID did not confirm it was you".into()),
+        }
+    }
+
     /// Asks for a fingerprint (or the login password), then reads the
     /// keychain copy.
     pub fn unlock(root: &Path) -> Result<VaultKey, String> {
@@ -94,30 +123,7 @@ mod touch_id {
                 "Touch ID is not set up for this vault on this Mac (den lock touch-id)".into(),
             );
         }
-        let policy = PolicyBuilder::new()
-            .biometrics(Some(BiometricStrength::Strong))
-            .password(true)
-            .build()
-            .ok_or("Touch ID is not available")?;
-        let text = Text {
-            android: AndroidText {
-                title: "Unlock Den",
-                subtitle: None,
-                description: None,
-            },
-            apple: "unlock your Den vault",
-            windows: WindowsText::new_truncated("Unlock Den", "Unlock your Den vault"),
-        };
-        let (tx, rx) = mpsc::channel();
-        Context::new(())
-            .authenticate(text, &policy, move |result| {
-                let _ = tx.send(result.is_ok());
-            })
-            .map_err(|e| format!("Touch ID: {e:?}"))?;
-        match rx.recv_timeout(Duration::from_secs(120)) {
-            Ok(true) => {}
-            _ => return Err("Touch ID did not confirm it was you".into()),
-        }
+        confirm("unlock your Den vault")?;
         let bytes = zeroize::Zeroizing::new(
             passwords::get_generic_password(SERVICE, &account)
                 .map_err(|e| format!("keychain: {e}"))?,
@@ -145,6 +151,30 @@ pub fn touch_id_store(root: &Path, key: &VaultKey) -> Result<(), String> {
 #[cfg(target_os = "macos")]
 pub fn touch_id_unlock(root: &Path) -> Result<VaultKey, String> {
     touch_id::unlock(root)
+}
+
+/// The person confirms, in the operating system's own dialog, that
+/// something may happen now. Test builds can answer through
+/// `DEN_TEST_CONFIRM` (yes or no) instead, so tests never raise a dialog.
+pub fn confirm_presence(reason: &str) -> Result<(), String> {
+    if cfg!(debug_assertions)
+        && let Ok(answer) = std::env::var("DEN_TEST_CONFIRM")
+    {
+        return if answer == "yes" {
+            Ok(())
+        } else {
+            Err("Touch ID did not confirm it was you".into())
+        };
+    }
+    #[cfg(target_os = "macos")]
+    {
+        touch_id::confirm(reason)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = reason;
+        Err("this needs a fingerprint or password check, which Den has only on macOS so far".into())
+    }
 }
 
 #[cfg(not(target_os = "macos"))]

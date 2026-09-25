@@ -333,9 +333,12 @@ fn clients_refuse_anything_but_den_agent_on_the_socket() {
     let socket = run.join("agent.sock");
     // This test program stands in for an impostor collecting passwords.
     let listener = UnixListener::bind(&socket).unwrap();
+    // It keeps each connection open, as a real impostor would, so the
+    // client can see who it is.
     std::thread::spawn(move || {
+        let mut held = Vec::new();
         for conn in listener.incoming() {
-            drop(conn);
+            held.push(conn);
         }
     });
     let err = Client::connect_to(&socket, Some(Path::new(AGENT)))
@@ -348,4 +351,43 @@ fn clients_refuse_anything_but_den_agent_on_the_socket() {
     std::fs::set_permissions(&run, std::fs::Permissions::from_mode(0o755)).unwrap();
     let err = Client::connect_to(&socket, None).err().unwrap().to_string();
     assert!(err.contains("only you can open"), "{err}");
+}
+
+#[test]
+fn an_agent_reads_a_locked_note_only_with_the_person_confirming_each_time() {
+    let read = |answer: &str| {
+        let a = start_with("", &[("DEN_TEST_CONFIRM", Some(answer.to_string()))]);
+        let mut c = client(&a);
+        setup(&mut c, &a.vault);
+        std::fs::create_dir_all(a.vault.join("notes")).unwrap();
+        std::fs::write(
+            a.vault.join("notes/diary.md.age"),
+            locked_note(&a.vault, "dear diary"),
+        )
+        .unwrap();
+        std::fs::write(a.vault.join("notes/plain.md"), "plain").unwrap();
+        let ask = |c: &mut Client, path: &str| {
+            c.call(&Request::ReadConfirmed {
+                vault: a.vault.clone(),
+                path: path.to_string(),
+            })
+            .map(|r| r.text.clone().unwrap_or_default())
+            .map_err(|e| e.to_string())
+        };
+        let first = ask(&mut c, "notes/diary.md.age");
+        let plain = ask(&mut c, "notes/plain.md");
+        let outside = ask(&mut c, "../elsewhere.md.age");
+        c.call(&Request::Lock).unwrap();
+        let locked = ask(&mut c, "notes/diary.md.age");
+        (first, plain, outside, locked)
+    };
+
+    let (yes, plain, outside, locked) = read("yes");
+    assert_eq!(yes.unwrap(), "dear diary");
+    assert!(plain.unwrap_err().contains("not a locked note"));
+    assert!(outside.is_err());
+    assert!(locked.unwrap_err().contains("unlock it first"));
+
+    let (no, ..) = read("no");
+    assert!(no.unwrap_err().contains("did not confirm"));
 }

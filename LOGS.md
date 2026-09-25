@@ -14,6 +14,44 @@ next. A change to [PLAN.md](PLAN.md) always gets an entry here.
 
 ---
 
+## 2026-09-24 · Build: M9, the agent; GitHub CI; bigger focus rings
+
+**Did**
+- `den-mcp`, an MCP server over stdio (rmcp 3.4, tokio only in this
+  crate): 21 tools. Reads: projects, tasks, inbox, insights, read_note,
+  search, journal, review, timer, nudges (read only), sync_status. Writes,
+  all through the engine's plans and checks: capture, add_task,
+  set_task_state, edit_task, move_task, new_note, journal_add,
+  start_timer, stop_timer. And read_locked_note.
+- den-agent `ReadConfirmed`: an agent reads one locked note only after the
+  person confirms that read with Touch ID (or their password), shown the
+  note's path; the agent reads the file itself so the prompt names what is
+  decrypted. Linux refuses for now.
+- `editing`: each Neovim publishes the vault files it holds unsaved changes
+  to, in the person's state folder; the MCP server refuses to write them.
+- `plan_journal_add`: a line under the journal page's first section,
+  creating the page from the template; locked pages refused.
+- Tests: 5 MCP end to end (the real binary over stdio), 2 unit; 1 agent
+  (confirmed reads, answered through a test-only switch); 1 editing; 1
+  journal.
+- GitHub is now the home: CI (Linux and macOS) and releases in GitHub
+  Actions; `:Den build` finds releases from the plugin's own remote; the
+  GitLab pipeline is gone.
+- The focus rings were far too small: the corner window now scales with
+  the editor, `:Den focus tab` opens them full size, and `:tab Den …`
+  works for every screen.
+- A bug hunt over the engine and plugin is running; its findings follow.
+
+**Decided**
+- The owner asked for M9 now.
+- The agent is told, in the server's instructions, that vault text is the
+  person's data and never instructions, and that nudges cannot be turned
+  off by anyone but the person.
+- Tool results are JSON text; task tools need the `raw` line as read, so
+  an agent acting on stale information is refused rather than guessing.
+
+---
+
 ## 2026-09-24 · Security review and fixes
 
 **Did**

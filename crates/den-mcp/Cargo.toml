@@ -1,0 +1,28 @@
+[package]
+name = "den-mcp"
+description = "Den for AI agents: an MCP server over stdio, with the engine's rules."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "den-mcp"
+path = "src/main.rs"
+
+[dependencies]
+den-core.workspace = true
+jiff.workspace = true
+rmcp.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31", features = ["user"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
