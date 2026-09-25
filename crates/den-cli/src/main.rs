@@ -259,7 +259,17 @@ fn capture(vault: Option<&Path>, to: Option<String>, text: &str) -> Result<()> {
     let changes = vault
         .plan_capture(project.as_deref(), text)
         .map_err(|e| e.to_string())?;
-    den_core::apply(&root, &changes, &vault.dirty()).map_err(|e| e.to_string())?;
+    // Files open with unsaved changes in a Neovim are left alone.
+    let mut dirty = vault.dirty();
+    if let Some(state) = den_core::editing::state_home() {
+        dirty.extend(den_core::editing::others(&state, &root));
+    }
+    den_core::apply(&root, &changes, &dirty).map_err(|e| match e {
+        den_core::Error::Dirty(path) => {
+            format!("{path} has unsaved changes in Neovim; save it there, then capture again")
+        }
+        other => other.to_string(),
+    })?;
     println!("captured to {}", project.as_deref().unwrap_or("inbox"));
     Ok(())
 }

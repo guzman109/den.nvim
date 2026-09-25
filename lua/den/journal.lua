@@ -16,6 +16,7 @@ local written = nil
 
 --- Whether a page has anything in it beyond the template's headings.
 function M.has_writing(text)
+  text = text:gsub("\r\n", "\n")
   local body = text:gsub("^%-%-%-\n.-\n%-%-%-\n", "", 1)
   for line in body:gmatch("[^\n]+") do
     if not line:match("^%s*$") and not line:match("^#") then

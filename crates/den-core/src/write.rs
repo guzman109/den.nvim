@@ -17,6 +17,32 @@ use crate::ops::Change;
 ///
 /// A plan never contains two changes to the same file.
 pub fn apply(root: &Path, changes: &[Change], dirty: &BTreeSet<String>) -> Result<()> {
+    let targets = check(root, changes, dirty)?;
+    for (change, abs) in changes.iter().zip(targets) {
+        if change.delete {
+            std::fs::remove_file(&abs).map_err(|e| Error::io(&abs, e))?;
+            if let Some(parent) = abs.parent()
+                && let Ok(dir) = std::fs::File::open(parent)
+            {
+                let _ = dir.sync_all();
+            }
+            continue;
+        }
+        if change.before.is_none()
+            && let Some(parent) = abs.parent()
+        {
+            std::fs::create_dir_all(parent).map_err(|e| Error::io(parent, e))?;
+        }
+        write_atomically(&abs, change.after.as_bytes())?;
+    }
+    Ok(())
+}
+
+/// Checks `changes` the way [`apply`] does, writing nothing, and returns
+/// each file's absolute path. An editor that applies part of a plan to its
+/// own buffers checks the rest first, so a plan is applied whole or not at
+/// all.
+pub fn check(root: &Path, changes: &[Change], dirty: &BTreeSet<String>) -> Result<Vec<PathBuf>> {
     let mut targets = Vec::with_capacity(changes.len());
     for change in changes {
         let abs = resolve(root, &change.path)?;
@@ -44,30 +70,24 @@ pub fn apply(root: &Path, changes: &[Change], dirty: &BTreeSet<String>) -> Resul
         }
         targets.push(abs);
     }
-    for (change, abs) in changes.iter().zip(targets) {
-        if change.delete {
-            std::fs::remove_file(&abs).map_err(|e| Error::io(&abs, e))?;
-            if let Some(parent) = abs.parent()
-                && let Ok(dir) = std::fs::File::open(parent)
-            {
-                let _ = dir.sync_all();
-            }
-            continue;
-        }
-        if change.before.is_none()
-            && let Some(parent) = abs.parent()
-        {
-            std::fs::create_dir_all(parent).map_err(|e| Error::io(parent, e))?;
-        }
-        write_atomically(&abs, change.after.as_bytes())?;
-    }
-    Ok(())
+    Ok(targets)
+}
+
+fn hidden(rel: &Path) -> bool {
+    rel.components().any(|c| match c {
+        Component::Normal(part) => part.to_string_lossy().starts_with('.'),
+        _ => true,
+    })
 }
 
 /// The absolute path for a vault path, refusing anything that could escape
 /// the vault: `..`, absolute paths, and symlinks (to the file or any folder
-/// on the way) that point outside it. A synced vault can carry symlinks
-/// from anywhere, so a link is followed only when it stays inside.
+/// on the way) that point outside it or into its hidden folders. A synced
+/// vault can carry symlinks from anywhere: a note named `notes/x.md` that
+/// is really `.git/hooks/pre-commit` would run whatever was written to it.
+/// A link is followed only when it stays among the vault's visible files,
+/// and a path Den names inside a hidden folder (`.den/keys/…`) is taken
+/// only as it is, with no links on the way.
 pub fn resolve(root: &Path, path: &str) -> Result<PathBuf> {
     let rel = Path::new(path);
     if path.is_empty() || rel.components().any(|c| !matches!(c, Component::Normal(_))) {
@@ -75,12 +95,18 @@ pub fn resolve(root: &Path, path: &str) -> Result<PathBuf> {
     }
     let abs = root.join(rel);
     let real_root = std::fs::canonicalize(root).map_err(|e| Error::io(root, e))?;
+    let asked_hidden = hidden(rel);
     // The file itself, or the deepest folder on its way that exists.
     let mut probe = abs.clone();
     loop {
         match std::fs::canonicalize(&probe) {
             Ok(real) => {
-                if !real.starts_with(&real_root) {
+                let Ok(real_rel) = real.strip_prefix(&real_root) else {
+                    return Err(Error::OutsideVault(path.to_string()));
+                };
+                let asked_rel = probe.strip_prefix(root).unwrap_or(&probe);
+                let redirected = real_rel != asked_rel;
+                if (asked_hidden && redirected) || (!asked_hidden && hidden(real_rel)) {
                     return Err(Error::OutsideVault(path.to_string()));
                 }
                 break;
@@ -346,6 +372,28 @@ mod tests {
             Err(Error::OutsideVault(_))
         ));
         assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep me\n");
+
+        // Nor into the vault's own hidden folders.
+        std::fs::create_dir_all(root.join(".git/hooks")).unwrap();
+        std::fs::write(root.join(".git/hooks/pre-commit"), "#!/bin/sh\n").unwrap();
+        std::os::unix::fs::symlink(
+            root.join(".git/hooks/pre-commit"),
+            root.join("notes/hook.md"),
+        )
+        .unwrap();
+        let hook = change("notes/hook.md", Some("#!/bin/sh\n"), "#!/bin/sh\nevil\n");
+        assert!(matches!(
+            apply(root, &[hook], &none),
+            Err(Error::OutsideVault(_))
+        ));
+        std::os::unix::fs::symlink(root.join(".git"), root.join("notes/g")).unwrap();
+        let through = change("notes/g/config", None, "x\n");
+        assert!(apply(root, &[through], &none).is_err());
+        // A hidden path Den names itself is fine as it is, not through links.
+        std::fs::create_dir_all(root.join(".den")).unwrap();
+        std::os::unix::fs::symlink(root.join(".git/hooks"), root.join(".den/keys")).unwrap();
+        assert!(resolve(root, ".den/keys/password.age").is_err());
+        assert!(resolve(root, ".den/log/mac.jsonl").is_ok());
 
         // A link that stays inside the vault is still written through.
         std::fs::write(root.join("real.md"), "a\n").unwrap();

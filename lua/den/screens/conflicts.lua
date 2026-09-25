@@ -174,6 +174,11 @@ keys = {
 }
 
 function M.open()
+  -- Files settled in an earlier sync may conflict again.
+  local ctx = S.ctx(NAME)
+  if ctx then
+    ctx.settled = {}
+  end
   S.open(NAME, { render = render, keys = keys, ctx = {} })
 end
 

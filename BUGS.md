@@ -20,6 +20,19 @@ search.
 
 ## Open
 
+### B-010 · Tests assume today is 2026-09-24
+- Found: 2026-09-25, the Neovim suite on the day after the fixtures' date
+- Status: open
+- Where: tests/nvim/test_statusline.lua, test_sync.lua; the fixture vault
+- Steps: run `scripts/test-nvim.sh` on any day after 2026-09-24
+- Expected: the tests pass on any day
+- Actual: 4 fail. "Profile the first frame" (due 2026-09-24) turns
+  overdue, and the fixture's timer session left running on 2026-09-24
+  shows in the statusline
+- Fix: let debug builds pin "now" (like `DEN_TEST_CONFIRM`), and set it in
+  the test runner
+- Test: the statusline and sync tests, once pinned
+
 ### B-007 · Security review of M5–M7: what is still open
 - Found: 2026-09-24, an independent read-only review of locking, the
   agent, askpass, sync, nudges and downloads (16 findings; fixed ones are
@@ -36,6 +49,70 @@ search.
 - gpg-agent's pinentry can still appear for GPG-signed commits
 
 ## Closed
+
+### B-009 · Bug hunt and second security review: fixed
+- Found: 2026-09-24, an independent bug hunt (18 confirmed, 8 suspected)
+  and a second read-only security review (6 findings)
+- Status: closed
+- Data loss or silent rewrites, fixed:
+  - A move across two files could delete the task when the second file
+    had changed on disk. Neovim now checks every change first (the buffer
+    text, and the engine's new `check` for the disk), then applies them in
+    the plan's order
+  - Den could write into the wrong buffer: `bufnr()` matched names as a
+    pattern. Buffers are now matched by their resolved path
+  - An open, unsaved-free buffer was written over a file changed on disk
+    since. The disk is checked first
+  - Sync combined two different rewordings of a task into two tasks, and
+    duplicated a task made only of tags. Such conflicts now wait for the
+    person; added lines keep their place
+  - Saving during a sync gave a hidden conflict with the sides swapped.
+    Sync pulls with `--no-autostash` (committing and retrying if needed),
+    reports any conflict left after a pull, and "mine" is always this
+    machine's side on the conflict screen and in `take_side`
+  - Mixed line endings were rewritten on any edit; each line now keeps
+    its own
+- Other fixes:
+  - Moves left behind children after a blank line or indented with tabs
+  - Words like `@done(soon)` were deleted when a task changed state
+  - Captures could land inside an unclosed code fence or under a
+    `### Someday` heading, out of every screen
+  - Paused and locked projects counted in "doing" and overdue while the
+    Tasks screen hid them; finished work still counts in Review
+  - Sync always said "another sync is running" when `.git` is a file
+    (worktrees, submodules)
+  - New projects wrote `root:` unquoted, and could be made beside a locked
+    project of the same name
+  - Renamed or moved folders were never noticed; a watcher that failed to
+    start was never reported
+  - Symlinked folders duplicated notes, and symlink loops multiplied them
+  - A locked note opened while the vault loaded showed the raw file:
+    vault paths now work from the root alone
+  - The Conflicts screen remembered a settled file for the whole session;
+    `:Den inbox` kept an old project
+  - Engine errors showed a Lua stack traceback; a snooze over 120 minutes
+    did nothing; `>` from a project's note lost its running timer; the
+    journal nag counted CRLF frontmatter as writing; a task ticked by hand
+    stayed in the burndown forever; a level-1 heading did not end the Inbox
+  - `:Den sync` and `den capture` now wait for unsaved Neovim buffers (each
+    Neovim publishes its unsaved vault files for other writers)
+  - Running setup twice could freeze Neovim: the old file watcher was
+    stopped while holding the engine's lock its thread was waiting for
+- Security review round 2, fixed:
+  - HIGH: a synced symlink (`notes/x.md` → `.git/hooks/pre-commit`) let a
+    Den write reach git's hooks or `.den/keys`. Writes and the vault scan
+    refuse links that leave the visible vault
+  - MEDIUM: other writers could not see Neovim's unsaved buffers (above);
+    symlinked folder loops (above)
+  - LOW: the release workflow could write to the repository in every job,
+    and actions were pinned by tag. Only the publish job can write now,
+    actions are pinned to commits, and checkouts keep no token
+  - LOW: den-mcp's `journal` returned pages of any size; capped like
+    `read_note`
+  - INFO: `read_locked_note` ignores strict mode on purpose; documented
+    where the agent handles it
+- Test: regression tests beside each fix (Rust unit and integration tests,
+  and tests/nvim/test_buffers, test_screens, test_sync, test_review)
 
 ### B-008 · Security review of M5–M7: fixed
 - Found: 2026-09-24, same review as B-007

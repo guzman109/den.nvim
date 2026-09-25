@@ -27,6 +27,39 @@ function M.setup(opts)
     end,
   })
 
+  -- Which vault files have unsaved changes, for other writers (an agent's
+  -- MCP server, the `den` command) to keep off. Updated whenever a
+  -- buffer's modified flag changes, and cleared on the way out.
+  local function publish()
+    local paths = {}
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].modified and vim.bo[buf].buftype == "" then
+        local rel = native.call("rel", vim.api.nvim_buf_get_name(buf))
+        if rel then
+          table.insert(paths, rel)
+        end
+      end
+    end
+    native.call("publish_editing", paths)
+  end
+  M.publish_editing = publish
+  vim.api.nvim_create_autocmd({ "BufModifiedSet", "BufWritePost", "BufDelete" }, {
+    group = group,
+    callback = function()
+      if state.ready then
+        vim.schedule(publish)
+      end
+    end,
+  })
+  vim.api.nvim_create_autocmd("VimLeavePre", {
+    group = group,
+    callback = function()
+      if state.ready then
+        native.call("publish_editing", {})
+      end
+    end,
+  })
+
   -- Decorations follow edits and new windows.
   vim.api.nvim_create_autocmd({ "BufWinEnter", "TextChanged", "InsertLeave" }, {
     group = group,

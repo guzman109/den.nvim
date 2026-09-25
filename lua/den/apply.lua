@@ -14,10 +14,31 @@ local M = {}
 --- Vault buffers Den has told the engine about, by vault path.
 local overlaid = {}
 
+--- A path with its links resolved, so `/var/…` and `/private/var/…` match.
+--- A file that doesn't exist yet resolves through its folder.
+local function real(path)
+  local resolved = vim.uv.fs_realpath(path)
+  if resolved then
+    return resolved
+  end
+  local folder = vim.uv.fs_realpath(vim.fs.dirname(path))
+  if folder then
+    return folder .. "/" .. vim.fs.basename(path)
+  end
+  return vim.fs.normalize(path)
+end
+
+--- The loaded buffer holding exactly this file. (`bufnr()` would treat the
+--- name as a pattern and could pick a different file.)
 local function buf_for(abs)
-  local buf = vim.fn.bufnr(abs)
-  if buf ~= -1 and vim.api.nvim_buf_is_loaded(buf) then
-    return buf
+  local want = real(abs)
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].buftype == "" then
+      local name = vim.api.nvim_buf_get_name(buf)
+      if name ~= "" and (name == abs or real(name) == want) then
+        return buf
+      end
+    end
   end
   return nil
 end
@@ -103,12 +124,18 @@ function M.clear_overlay(rel)
 end
 
 --- Applies changes. Returns true, or false and a message.
+---
+--- Every change is checked before any is made (the buffer's text for open
+--- files, the file on disk for the rest), so a plan that touches two files,
+--- like a move, is applied whole or not at all. Then the changes are made in
+--- the plan's order.
 function M.apply(changes)
   local mod = native.need()
-  local disk, paths, wipe, reread = {}, {}, {}, {}
+  local steps, check, paths = {}, {}, {}
   for _, change in ipairs(changes or {}) do
     table.insert(paths, change.path)
     local buf = buf_for(mod.abs(change.path))
+    local step = { change = change, buf = buf }
     if buf and (change.delete or vim.b[buf].den_locked) then
       -- A file going away, or a locked note (the buffer holds plaintext,
       -- the change ciphertext): the engine writes the disk, and the buffer
@@ -116,32 +143,61 @@ function M.apply(changes)
       if vim.bo[buf].modified then
         return false, change.path .. " has unsaved changes; save or undo them first"
       end
-      table.insert(disk, change)
-      table.insert(change.delete and wipe or reread, buf)
+      step.disk = true
+      step.after = change.delete and "wipe" or "reread"
+      table.insert(check, change)
     elseif buf then
       if change.before and M.buf_text(buf) ~= change.before then
         return false, change.path .. " changed on screen since Den read it; try again"
       end
-      local was_modified = vim.bo[buf].modified
+      step.modified = vim.bo[buf].modified
+      if not step.modified then
+        -- Written straight away, over the file on disk: that must still
+        -- hold what the buffer shows.
+        table.insert(check, change)
+      end
+    else
+      step.disk = true
+      table.insert(check, change)
+    end
+    table.insert(steps, step)
+  end
+  if #check > 0 then
+    local ok, err = pcall(mod.check, check)
+    if not ok then
+      return false, native.message(err)
+    end
+  end
+
+  local wipe, reread = {}, {}
+  for _, step in ipairs(steps) do
+    local change, buf = step.change, step.buf
+    if step.disk then
+      local ok, err = pcall(mod.apply, { change })
+      if not ok then
+        state.changed(paths)
+        return false, native.message(err)
+      end
+      if step.after == "wipe" then
+        table.insert(wipe, buf)
+      elseif step.after == "reread" then
+        table.insert(reread, buf)
+      end
+    else
       set_text(buf, change.after)
-      if not was_modified then
+      if not step.modified then
         vim.api.nvim_buf_call(buf, function()
           vim.cmd("silent! noautocmd write")
         end)
-        M.clear_overlay(change.path)
-        pcall(mod.reload, change.path)
-      else
+      end
+      if vim.bo[buf].modified then
+        -- Kept unsaved, as the person left it (or the write failed).
         pcall(mod.set_overlay, change.path, M.buf_text(buf))
         overlaid[change.path] = true
+      else
+        M.clear_overlay(change.path)
+        pcall(mod.reload, change.path)
       end
-    else
-      table.insert(disk, change)
-    end
-  end
-  if #disk > 0 then
-    local ok, err = pcall(mod.apply, disk)
-    if not ok then
-      return false, (tostring(err):gsub("^runtime error: ", ""))
     end
   end
   for _, buf in ipairs(wipe) do
@@ -164,7 +220,7 @@ function M.run(fn)
   local mod = native.need()
   local ok, changes = pcall(fn, mod)
   if not ok then
-    vim.notify("Den: " .. tostring(changes):gsub("^runtime error: ", ""), vim.log.levels.WARN)
+    vim.notify("Den: " .. native.message(changes), vim.log.levels.WARN)
     return false
   end
   local done, err = M.apply(changes)

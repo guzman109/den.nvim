@@ -141,6 +141,31 @@ pub struct Problem {
     pub message: String,
 }
 
+/// The vault path for a file under `root`, when it is one of the vault's
+/// notes (`projects/x.md`, `notes/y.md.age`, …). Needs only the root, so it
+/// works while the vault is still loading.
+pub fn rel(root: &Path, abs: &Path) -> Option<String> {
+    let real_root = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let abs = std::fs::canonicalize(abs)
+        .ok()
+        .or_else(|| {
+            // A file not written yet: resolve its folder.
+            let parent = std::fs::canonicalize(abs.parent()?).ok()?;
+            Some(parent.join(abs.file_name()?))
+        })
+        .unwrap_or_else(|| abs.to_path_buf());
+    let inner = abs
+        .strip_prefix(&real_root)
+        .or_else(|_| abs.strip_prefix(root))
+        .ok()?;
+    let path = inner
+        .components()
+        .map(|c| c.as_os_str().to_str())
+        .collect::<Option<Vec<_>>>()?
+        .join("/");
+    classify(&path).map(|_| path)
+}
+
 #[derive(Debug, Clone)]
 pub struct Vault {
     root: PathBuf,
@@ -325,18 +350,7 @@ impl Vault {
 
     /// The vault path of an absolute path, if it names a vault file.
     pub fn rel(&self, abs: &Path) -> Option<String> {
-        let root = std::fs::canonicalize(&self.root).unwrap_or_else(|_| self.root.clone());
-        let abs = std::fs::canonicalize(abs).unwrap_or_else(|_| abs.to_path_buf());
-        let inner = abs
-            .strip_prefix(&root)
-            .or_else(|_| abs.strip_prefix(&self.root))
-            .ok()?;
-        let path = inner
-            .components()
-            .map(|c| c.as_os_str().to_str())
-            .collect::<Option<Vec<_>>>()?
-            .join("/");
-        classify(&path).map(|_| path)
+        rel(&self.root, abs)
     }
 
     pub fn projects(&self) -> impl Iterator<Item = Project<'_>> {
@@ -448,14 +462,21 @@ fn collect(
             continue;
         }
         let path = entry.path();
-        // A symlink is followed only when it stays inside the vault: a
-        // synced vault can carry links to anywhere.
+        // A synced vault can carry links to anywhere. A linked file is read
+        // only when it is one of the vault's visible files; linked folders
+        // are never followed (a link to a parent would repeat everything).
         if entry.file_type().is_ok_and(|t| t.is_symlink()) {
-            let inside = std::fs::canonicalize(&path)
+            let visible = std::fs::canonicalize(&path)
                 .ok()
                 .zip(std::fs::canonicalize(root).ok())
-                .is_some_and(|(real, real_root)| real.starts_with(real_root));
-            if !inside {
+                .is_some_and(|(real, real_root)| {
+                    real.is_file()
+                        && real.strip_prefix(&real_root).is_ok_and(|rel| {
+                            !rel.components()
+                                .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
+                        })
+                });
+            if !visible {
                 continue;
             }
         }

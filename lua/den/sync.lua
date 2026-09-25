@@ -9,7 +9,8 @@
 --
 -- `:Den sync` runs in the foreground: SSH may ask for a passphrase (inside
 -- Neovim, through the `den` binary as askpass), the result is announced,
--- and a conflict opens the conflict screen.
+-- and a conflict opens the conflict screen. It too waits for unsaved vault
+-- files to be saved.
 
 local native = require("den.native")
 local state = require("den.state")
@@ -43,17 +44,19 @@ function M.program()
   return found ~= "" and found or nil
 end
 
---- Whether any buffer holds unsaved changes to a vault file.
+--- The vault files with unsaved changes in a buffer (nil when none).
 local function editing()
+  local rels = {}
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
     if vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].modified and vim.bo[buf].buftype == "" then
       -- The engine resolves links (a vault under /var is /private/var on macOS).
-      if native.call("rel", vim.api.nvim_buf_get_name(buf)) then
-        return true
+      local rel = native.call("rel", vim.api.nvim_buf_get_name(buf))
+      if rel then
+        table.insert(rels, rel)
       end
     end
   end
-  return false
+  return #rels > 0 and rels or nil
 end
 
 --- A sync nobody asked for: never prompts, skipped while editing.
@@ -69,9 +72,19 @@ function M.background(opts)
   return native.call("sync_run", { if_waiting = opts and opts.if_waiting or false, den = M.program() }) == true
 end
 
---- `:Den sync`: may ask for a passphrase, says what happened.
+--- `:Den sync`: may ask for a passphrase, says what happened. Like the
+--- background sync, it waits for unsaved vault files: a pull must never
+--- land under an edit in progress.
 function M.run(opts)
   opts = opts or {}
+  local unsaved = editing()
+  if unsaved then
+    vim.notify(
+      "Den: save or undo the unsaved changes to " .. table.concat(unsaved, ", ") .. " first, then sync again",
+      vim.log.levels.WARN
+    )
+    return false
+  end
   local program = M.program()
   local started, err = native.call("sync_run", {
     askpass = program,

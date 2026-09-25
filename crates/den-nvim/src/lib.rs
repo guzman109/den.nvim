@@ -184,14 +184,17 @@ fn setup(lua: &Lua, opts: Option<LuaValue>) -> LuaResult<LuaValue> {
     if let Some(m) = opts.machine {
         config.machine = Some(m);
     }
+    // Neovim reads the nudge times from here (the snooze length, the break
+    // it waits for), so it gets them within the bounds the engine keeps.
+    config.nudges = den_core::nudge::clamped(&config.nudges);
     let root = config.vault_root();
     let machine = config.machine_name();
     let (reader, writer) = std::io::pipe().map_err(LuaError::external)?;
     let fd = reader.into_raw_fd();
 
-    {
+    let previous = {
         let mut guard = lock()?;
-        *guard = Some(Engine {
+        guard.replace(Engine {
             config: config.clone(),
             root: root.clone(),
             vault: None,
@@ -200,8 +203,11 @@ fn setup(lua: &Lua, opts: Option<LuaValue>) -> LuaResult<LuaValue> {
             watch: None,
             wake: Some(writer),
             sync: SyncState::default(),
-        });
-    }
+        })
+    };
+    // Dropped outside the lock: stopping the old watcher waits for its
+    // thread, which may itself be waiting for the lock.
+    drop(previous);
 
     let thread_root = root.clone();
     let thread_machine = machine.clone();
@@ -231,7 +237,17 @@ fn load(root: PathBuf, machine: String) {
         (Ok(vault), Ok(log)) => {
             engine.vault = Some(vault);
             engine.log = Some(log);
-            engine.watch = den_core::watch::watch(&root, on_disk_change).ok();
+            engine.watch = match den_core::watch::watch(&root, on_disk_change) {
+                Ok(w) => Some(w),
+                Err(e) => {
+                    engine.notify(Event::Error {
+                        message: format!(
+                            "{e}; changes made outside this Neovim will show only after a restart"
+                        ),
+                    });
+                    None
+                }
+            };
             engine.notify(Event::Loaded);
         }
         (Err(e), _) | (_, Err(e)) => engine.notify(Event::Error {
@@ -245,6 +261,14 @@ fn on_disk_change(changed: den_core::watch::Changed) {
     let Ok(mut guard) = ENGINE.lock() else { return };
     let Some(engine) = guard.as_mut() else { return };
     let mut paths = Vec::new();
+    if changed.rescan
+        && let Some(vault) = engine.vault.as_mut()
+    {
+        // A folder moved: read everything again, and tell everyone.
+        if vault.rescan().is_ok() {
+            engine.notify(Event::Changed { paths: Vec::new() });
+        }
+    }
     if let Some(vault) = engine.vault.as_mut() {
         for path in changed.docs {
             if vault.reload_if_changed(&path) {
@@ -398,7 +422,9 @@ fn problems(lua: &Lua, _: ()) -> LuaResult<LuaValue> {
 }
 
 fn rel(_: &Lua, abs: String) -> LuaResult<Option<String>> {
-    with(|e| Ok(e.vault()?.rel(Path::new(&abs))))
+    // From the root alone, so a file opened while the vault loads is still
+    // known to be a vault file.
+    with(|e| Ok(den_core::vault::rel(&e.root, Path::new(&abs))))
 }
 
 fn abs(_: &Lua, rel: String) -> LuaResult<String> {
@@ -410,15 +436,18 @@ fn root(_: &Lua, _: ()) -> LuaResult<String> {
 }
 
 fn set_overlay(_: &Lua, (path, text): (String, Option<String>)) -> LuaResult<()> {
-    with(|e| {
-        let vault = e.vault_mut()?;
-        vault.set_overlay(&path, text).map_err(err)?;
-        // Other writers (an agent's MCP server) keep off these files.
-        if let Some(state) = den_core::editing::state_home() {
-            den_core::editing::publish(&state, vault.root(), &vault.dirty());
-        }
-        Ok(())
-    })
+    with(|e| e.vault_mut()?.set_overlay(&path, text).map_err(err))
+}
+
+/// Tells other writers (an agent's MCP server, the `den` command) which
+/// vault files this Neovim holds unsaved changes to.
+fn publish_editing(_: &Lua, paths: Vec<String>) -> LuaResult<()> {
+    let root = with(|e| Ok(e.root.clone()))?;
+    if let Some(state) = den_core::editing::state_home() {
+        let paths: std::collections::BTreeSet<String> = paths.into_iter().collect();
+        den_core::editing::publish(&state, &root, &paths);
+    }
+    Ok(())
 }
 
 fn reload(_: &Lua, path: String) -> LuaResult<bool> {
@@ -556,6 +585,17 @@ fn apply(lua: &Lua, changes: LuaValue) -> LuaResult<()> {
         for c in &changes {
             vault.reload(&c.path);
         }
+        Ok(())
+    })
+}
+
+/// Checks changes against the disk without writing: each file still holds
+/// what its change was planned against, and none has unsaved changes.
+fn check(lua: &Lua, changes: LuaValue) -> LuaResult<()> {
+    let changes: Vec<Change> = lua.from_value(changes)?;
+    with(|e| {
+        let vault = e.vault()?;
+        den_core::write::check(vault.root(), &changes, &vault.dirty()).map_err(err)?;
         Ok(())
     })
 }
@@ -814,13 +854,15 @@ struct ConflictFile {
 /// machine pushed and the second is this machine's edit being replayed; in a
 /// merge it is the other way round.
 fn rebasing(root: &Path) -> bool {
-    let git = root.join(".git");
-    git.join("rebase-merge").exists() || git.join("rebase-apply").exists()
+    sync::rebasing(root)
 }
 
+/// The other machine's name, from the commit the rebase replays onto (not
+/// HEAD, which may already hold this machine's replayed commits).
 fn other_machine(root: &Path) -> Option<String> {
+    let onto = sync::rebase_onto(root)?;
     let out = std::process::Command::new("git")
-        .args(["log", "-1", "--format=%s", "HEAD"])
+        .args(["log", "-1", "--format=%s", &onto])
         .current_dir(root)
         .stdin(std::process::Stdio::null())
         .output()
@@ -835,30 +877,29 @@ fn other_machine(root: &Path) -> Option<String> {
     (!name.is_empty()).then(|| name.to_string())
 }
 
-/// The conflicts in one file, sides named for the person.
+/// The conflicts in one file, sides named for the person. Den only stops
+/// in a rebase (it pulls with `--no-autostash`), where the first side of a
+/// conflict is what the other machine pushed and the second is this
+/// machine's replayed edit, as in [`sync::take_side`].
 fn conflicts(lua: &Lua, path: String) -> LuaResult<LuaValue> {
     with(|e| {
         let text = std::fs::read_to_string(e.root.join(&path)).map_err(LuaError::external)?;
-        let rebase = rebasing(&e.root);
         let hunks = conflict::hunks(&text)
             .into_iter()
-            .map(|h| {
-                let (mine, other) = if rebase {
-                    (h.theirs, h.ours)
-                } else {
-                    (h.ours, h.theirs)
-                };
-                ConflictHunk {
-                    start: h.start,
-                    end: h.end,
-                    mine,
-                    other,
-                    base: h.base,
-                    combined: h.combined,
-                }
+            .map(|h| ConflictHunk {
+                start: h.start,
+                end: h.end,
+                mine: h.theirs,
+                other: h.ours,
+                base: h.base,
+                combined: h.combined,
             })
             .collect();
-        let other_name = if rebase { other_machine(&e.root) } else { None };
+        let other_name = if rebasing(&e.root) {
+            other_machine(&e.root)
+        } else {
+            None
+        };
         out(
             lua,
             &ConflictFile {
@@ -893,15 +934,13 @@ fn take_side(_: &Lua, (path, side): (String, String)) -> LuaResult<()> {
 /// "mine", "other", "both" and "leave".
 fn plan_resolve(lua: &Lua, (path, choices): (String, Vec<String>)) -> LuaResult<LuaValue> {
     with(|e| {
-        let rebase = rebasing(&e.root);
+        // Sides as in `conflicts`: mine is the second.
         let choices = choices
             .iter()
             .map(|c| match c.as_str() {
                 "combine" => Ok(Choice::Combine),
-                "mine" if rebase => Ok(Choice::Theirs),
-                "mine" => Ok(Choice::Ours),
-                "other" if rebase => Ok(Choice::Ours),
-                "other" => Ok(Choice::Theirs),
+                "mine" => Ok(Choice::Theirs),
+                "other" => Ok(Choice::Ours),
                 "both" => Ok(Choice::Both),
                 "leave" => Ok(Choice::Leave),
                 other => Err(LuaError::runtime(format!("unknown choice {other}"))),
@@ -1395,6 +1434,7 @@ fn den_native(lua: &Lua) -> LuaResult<LuaTable> {
     m.set("doc_tasks", lua.create_function(doc_tasks)?)?;
     m.set("problems", lua.create_function(problems)?)?;
     m.set("set_overlay", lua.create_function(set_overlay)?)?;
+    m.set("publish_editing", lua.create_function(publish_editing)?)?;
     m.set("reload", lua.create_function(reload)?)?;
     m.set("plan_state", lua.create_function(plan_state)?)?;
     m.set("plan_edit", lua.create_function(plan_edit)?)?;
@@ -1407,6 +1447,7 @@ fn den_native(lua: &Lua) -> LuaResult<LuaTable> {
     m.set("plan_new_note", lua.create_function(plan_new_note)?)?;
     m.set("plan_daily", lua.create_function(plan_daily)?)?;
     m.set("apply", lua.create_function(apply)?)?;
+    m.set("check", lua.create_function(check)?)?;
     m.set("timer_running", lua.create_function(timer_running)?)?;
     m.set("timer_start", lua.create_function(timer_start)?)?;
     m.set("timer_stop", lua.create_function(timer_stop)?)?;

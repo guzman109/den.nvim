@@ -133,6 +133,10 @@ T.test("late in the day an unwritten journal is mentioned once", function()
   local journal = require("den.journal")
   T.ok(journal.has_writing("---\ndate: x\n---\n# Day\n\n## On my mind\n\nA walk by the river.\n"))
   T.ok(not journal.has_writing("---\ndate: x\nmood:\n---\n# Day\n\n## On my mind\n\n## Went well\n"))
+  T.ok(
+    not journal.has_writing("---\r\ndate: x\r\nmood:\r\n---\r\n# Day\r\n\r\n## On my mind\r\n"),
+    "Windows line endings: still only the template"
+  )
   local hour = journal.LATE_HOUR
   journal.LATE_HOUR = -1
   journal.refresh("2026-09-20")
@@ -213,4 +217,15 @@ T.test("nothing in setup or the config turns nudges off", function()
   T.ok(ok, tostring(err))
   require("den.state").wait(5000)
   T.eq(require("den.nudges").describe(), "on")
+end)
+
+T.test("a snooze longer than two hours is cut to two hours", function()
+  local config = T.tmp .. "/long-snooze.yaml"
+  vim.fn.writefile({ "nudges:", "  snooze_minutes: 500" }, config)
+  require("den").setup({ config = config, vault = T.vault, machine = "test", ask_about_folders = false })
+  T.ok(require("den.state").wait(5000), "the vault loads")
+  local nudges = require("den.state").info.config.nudges
+  T.eq(nudges.snooze_minutes, 120)
+  require("den").setup({ vault = T.vault, machine = "test", ask_about_folders = false })
+  T.ok(require("den.state").wait(5000), "the vault loads")
 end)

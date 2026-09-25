@@ -535,9 +535,20 @@ fn the_vault_does_not_follow_links_out_of_itself() {
         dir.path().join("notes/linked.md"),
     )
     .unwrap();
+    // Nor into its own hidden folders, nor round in a loop.
+    std::fs::create_dir_all(dir.path().join(".den/keys")).unwrap();
+    std::fs::write(dir.path().join(".den/keys/password.age"), "secret").unwrap();
+    std::os::unix::fs::symlink(
+        dir.path().join(".den/keys/password.age"),
+        dir.path().join("notes/pw.md"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(dir.path().join("notes"), dir.path().join("notes/loop")).unwrap();
     let vault = Vault::open(dir.path()).unwrap();
     assert!(vault.doc("notes/away/elsewhere.md").is_none());
     assert!(vault.doc("notes/linked.md").is_none());
+    assert!(vault.doc("notes/pw.md").is_none());
+    assert!(vault.docs().all(|d| !d.path.starts_with("notes/loop/")));
 }
 
 #[test]
@@ -564,4 +575,64 @@ fn a_journal_line_goes_under_the_first_section_of_a_new_or_existing_page() {
         changes[0].after
     );
     assert!(vault.plan_journal_add(day, "   ").is_err(), "empty text");
+}
+
+#[test]
+fn new_projects_quote_their_folder_and_never_hide_a_locked_one() {
+    let (dir, vault) = scratch();
+    let home = std::env::home_dir().unwrap();
+    let changes = vault
+        .plan_new_project("Home base", Some(&home), TODAY)
+        .unwrap();
+    assert!(
+        changes[0].after.contains("root: \"~\"\n"),
+        "{}",
+        changes[0].after
+    );
+    let odd = home.join("a: b #c");
+    let changes = vault.plan_new_project("Odd", Some(&odd), TODAY).unwrap();
+    assert!(
+        changes[0].after.contains("root: \"~/a: b #c\"\n"),
+        "{}",
+        changes[0].after
+    );
+
+    std::fs::write(dir.path().join("projects/secret.md.age"), "x").unwrap();
+    let vault = Vault::open(dir.path()).unwrap();
+    assert!(matches!(
+        vault.plan_new_project("Secret", None, TODAY),
+        Err(Error::Exists(_))
+    ));
+}
+
+#[test]
+fn paused_and_locked_projects_count_nowhere_the_tasks_screen_does_not_show() {
+    let (dir, _) = scratch();
+    std::fs::write(
+        dir.path().join("projects/resting.md"),
+        "---\nstatus: paused\n---\n# Resting\n\n## Next actions\n\n- [/] Half done\n- [ ] Late @due(2026-09-01)\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("projects/hidden.md.age"), "x").unwrap();
+    std::fs::write(
+        dir.path().join("notes/hidden-plan.md"),
+        "---\nproject: hidden\n---\n# Plan\n\n- [/] Secret work\n- [ ] Also late @due(2026-09-01)\n",
+    )
+    .unwrap();
+    let vault = Vault::open(dir.path()).unwrap();
+    let view = vault.tasks_view(&Scope::All, TODAY);
+    let doing: Vec<&str> = view.doing.iter().map(|r| r.title.as_str()).collect();
+    assert!(
+        !doing.contains(&"Half done") && !doing.contains(&"Secret work"),
+        "{doing:?}"
+    );
+    let overdue = vault
+        .insights(&Scope::All, TODAY)
+        .into_iter()
+        .find_map(|i| match i {
+            den_core::query::Insight::Overdue { count, .. } => Some(count),
+            _ => None,
+        });
+    // The fixture's own overdue task only.
+    assert_eq!(overdue, Some(1));
 }

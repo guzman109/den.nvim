@@ -20,6 +20,9 @@ pub struct Changed {
     pub docs: BTreeSet<String>,
     /// A timer log changed.
     pub log: bool,
+    /// A folder appeared, moved or went, or the system lost track: the
+    /// vault should be read again from scratch.
+    pub rescan: bool,
 }
 
 /// Keeps the watcher alive; dropping it stops watching.
@@ -38,7 +41,10 @@ pub fn watch(root: &Path, on_change: impl Fn(Changed) + Send + 'static) -> Resul
         if matches!(event.kind, EventKind::Access(_)) {
             return;
         }
-        let mut changed = Changed::default();
+        let mut changed = Changed {
+            rescan: event.need_rescan(),
+            ..Changed::default()
+        };
         for path in &event.paths {
             let Some(rel) = roots.iter().find_map(|r| relative(r, path)) else {
                 continue;
@@ -47,9 +53,16 @@ pub fn watch(root: &Path, on_change: impl Fn(Changed) + Send + 'static) -> Resul
                 changed.log = true;
             } else if classify(&rel).is_some() {
                 changed.docs.insert(rel);
+            } else if !rel.is_empty()
+                && !rel.split('/').any(|part| part.starts_with('.'))
+                && (path.is_dir() || !path.exists())
+            {
+                // A visible folder (renamed, made or removed): its notes are
+                // not named one by one.
+                changed.rescan = true;
             }
         }
-        if changed.log || !changed.docs.is_empty() {
+        if changed.log || changed.rescan || !changed.docs.is_empty() {
             on_change(changed);
         }
     })
@@ -96,5 +109,31 @@ mod tests {
         }
         assert!(seen.contains("notes/new.md"), "{seen:?}");
         assert!(!seen.iter().any(|p| p.ends_with(".txt")));
+    }
+
+    #[test]
+    fn a_renamed_folder_asks_for_a_rescan() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("notes/reading")).unwrap();
+        std::fs::write(dir.path().join("notes/reading/a.md"), "# A\n").unwrap();
+        let (tx, rx) = mpsc::channel();
+        let _watch = watch(dir.path(), move |c| {
+            let _ = tx.send(c);
+        })
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        std::fs::rename(
+            dir.path().join("notes/reading"),
+            dir.path().join("notes/books"),
+        )
+        .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let mut rescan = false;
+        while std::time::Instant::now() < deadline && !rescan {
+            if let Ok(c) = rx.recv_timeout(Duration::from_millis(200)) {
+                rescan |= c.rescan;
+            }
+        }
+        assert!(rescan);
     }
 }

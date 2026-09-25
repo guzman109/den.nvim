@@ -143,6 +143,8 @@ pub fn parse(buf: &TextBuf) -> Parsed {
             }
             if level >= 2 {
                 section = Some(text.clone());
+            } else {
+                section = None;
             }
             out.headings.push(Heading {
                 level,
@@ -307,10 +309,20 @@ fn tokens(text: &str) -> Tokens {
             Word::Date => "",
         })
         .collect();
-    out.title = if title.is_empty() {
-        text.split_whitespace().collect::<Vec<_>>().join(" ")
-    } else {
+    // A task made only of tags is called by its tags; dates never name a
+    // task, so finishing it keeps its name.
+    out.title = if !title.is_empty() {
         title.join(" ")
+    } else if !kept.is_empty() {
+        kept.iter()
+            .map(|w| match w {
+                Word::Plain(s) | Word::Tag(s) => *s,
+                Word::Date => "",
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else {
+        text.split_whitespace().collect::<Vec<_>>().join(" ")
     };
     out
 }
@@ -372,6 +384,22 @@ fn fence_marker(line: &str) -> Option<(char, usize, bool)> {
     }
     let after = &rest[run..];
     Some((c, run, after.trim().is_empty()))
+}
+
+/// Whether line `at` would sit inside a code block that is still open
+/// after the lines before it (frontmatter aside).
+pub(crate) fn inside_fence(lines: &[String], at: usize) -> bool {
+    let mut fence: Option<(char, usize)> = None;
+    for line in lines.iter().take(at) {
+        if let Some((c, n, bare)) = fence_marker(line) {
+            match fence {
+                None => fence = Some((c, n)),
+                Some((open, len)) if c == open && n >= len && bare => fence = None,
+                Some(_) => {}
+            }
+        }
+    }
+    fence.is_some()
 }
 
 /// An ATX heading: `## Text` → `(2, "Text")`.
@@ -505,5 +533,26 @@ mod tests {
         let t = task_line("  * [x] done thing").unwrap();
         assert_eq!(t.indent, 2);
         assert_eq!(&"  * [x] done thing"[t.mark_at..t.mark_at + 1], "x");
+    }
+}
+
+#[cfg(test)]
+mod names {
+    use super::*;
+
+    #[test]
+    fn a_task_of_only_tags_keeps_its_name_when_finished() {
+        let open = task("- [ ] #errand").unwrap();
+        let done = task("- [x] #errand @done(2026-09-24)").unwrap();
+        assert_eq!(open.title, "#errand");
+        assert_eq!(done.title, open.title);
+    }
+
+    #[test]
+    fn a_top_level_heading_ends_a_section() {
+        let buf = TextBuf::parse("# Title\n\n## Inbox\n\n- [ ] a\n\n# Archive\n\n- [ ] b\n");
+        let parsed = parse(&buf);
+        assert_eq!(parsed.tasks[0].section.as_deref(), Some("Inbox"));
+        assert_eq!(parsed.tasks[1].section, None);
     }
 }

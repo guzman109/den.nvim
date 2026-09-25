@@ -111,6 +111,12 @@ keys = {
 
 function M.open(opts)
   opts = opts or {}
+  -- The project asked for this time, even none: an open screen keeps the
+  -- rest of its state.
+  local ctx = S.ctx(NAME)
+  if ctx then
+    ctx.project, ctx.title = opts.project, nil
+  end
   S.open(NAME, { render = render, keys = keys, ctx = { project = opts.project } })
 end
 

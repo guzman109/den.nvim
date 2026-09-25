@@ -314,7 +314,33 @@ fn classify_failure(message: String) -> Outcome {
     }
 }
 
-/// Holds `.git/den-sync.lock` for the length of a sync. The file names the
+/// The repository's own folder: `.git`, or where a `.git` file points (a
+/// linked worktree, a submodule, a separate git dir).
+pub fn git_dir(root: &Path) -> Option<PathBuf> {
+    gix::open(root)
+        .ok()
+        .map(|repo| repo.git_dir().to_path_buf())
+}
+
+/// Whether a rebase stopped part way.
+pub fn rebasing(root: &Path) -> bool {
+    git_dir(root)
+        .is_some_and(|g| g.join("rebase-merge").exists() || g.join("rebase-apply").exists())
+}
+
+/// The commit a stopped rebase is replaying onto: what the other machine
+/// pushed.
+pub fn rebase_onto(root: &Path) -> Option<String> {
+    let g = git_dir(root)?;
+    ["rebase-merge/onto", "rebase-apply/onto"]
+        .iter()
+        .find_map(|p| std::fs::read_to_string(g.join(p)).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Holds the sync lock (in the repository's own folder) for the length of a
+/// sync. The file names the
 /// process holding it; a lock whose process is gone was left by a crash and
 /// is broken. A slow sync (waiting for a passphrase) keeps its lock.
 struct Lock(PathBuf);
@@ -330,7 +356,7 @@ fn alive(pid: i32) -> bool {
 impl Lock {
     fn take(root: &Path) -> Option<Lock> {
         use std::io::Write as _;
-        let path = root.join(".git").join("den-sync.lock");
+        let path = git_dir(root)?.join("den-sync.lock");
         if let Ok(text) = std::fs::read_to_string(&path) {
             let holder = text.trim().parse::<i32>().ok();
             let stale = match holder {
@@ -434,18 +460,26 @@ pub fn run(root: &Path, machine: &str, env: &Env) -> Outcome {
     }
 
     let before = head(root, env);
-    let pull = match git(
-        root,
-        env,
-        &[
-            "-c",
-            "merge.conflictStyle=diff3",
-            "pull",
-            "--rebase",
-            "--autostash",
-            "-q",
-        ],
-    ) {
+    // No autostash: an edit saved while the fetch runs would come back from
+    // the stash with conflicts git still calls a success, and with the
+    // sides the other way round. Instead, a pull refused for a dirty tree
+    // commits that edit and tries once more.
+    let pull_once = || {
+        git(
+            root,
+            env,
+            &[
+                "-c",
+                "merge.conflictStyle=diff3",
+                "pull",
+                "--rebase",
+                "--no-autostash",
+                "-q",
+            ],
+        )
+    };
+    let mut committed = committed;
+    let mut pull = match pull_once() {
         Ok(out) => out,
         Err(e) => {
             return Outcome::Failed {
@@ -453,6 +487,24 @@ pub fn run(root: &Path, machine: &str, env: &Env) -> Outcome {
             };
         }
     };
+    let dirty_tree = |out: &Output| {
+        let text = stderr(out).to_lowercase();
+        text.contains("unstaged changes") || text.contains("uncommitted changes")
+    };
+    if !pull.status.success() && dirty_tree(&pull) {
+        match commit(root, machine, env) {
+            Ok(n) => committed += n,
+            Err(outcome) => return outcome,
+        }
+        pull = match pull_once() {
+            Ok(out) => out,
+            Err(e) => {
+                return Outcome::Failed {
+                    message: e.to_string(),
+                };
+            }
+        };
+    }
     let mut combined = 0;
     if !pull.status.success() {
         let stopped = snapshot(root).is_ok_and(|s| s.rebasing || !s.conflicts.is_empty());
@@ -463,6 +515,12 @@ pub fn run(root: &Path, machine: &str, env: &Env) -> Outcome {
             Ok(n) => combined = n,
             Err(outcome) => return outcome,
         }
+    }
+    // Whatever git said, a file still in conflict is a conflict.
+    if let Ok(s) = snapshot(root)
+        && (s.rebasing || !s.conflicts.is_empty())
+    {
+        return Outcome::Conflict { files: s.conflicts };
     }
     let pulled = head(root, env) != before;
 
@@ -660,12 +718,11 @@ pub enum Side {
 /// marks it settled. For locked notes, whose conflicts cannot be shown line
 /// by line.
 pub fn take_side(root: &Path, path: &str, side: Side, env: &Env) -> Result<()> {
-    let rebasing = snapshot(root).is_ok_and(|s| s.rebasing);
-    // During a rebase, stage 2 is what the other machine pushed and stage 3
-    // this machine's replayed edit; in a merge it is the other way round.
-    let stage = match (side, rebasing) {
-        (Side::Mine, true) | (Side::Other, false) => 3,
-        (Side::Other, true) | (Side::Mine, false) => 2,
+    // Den only ever stops in a rebase: stage 2 is what the other machine
+    // pushed and stage 3 this machine's replayed edit.
+    let stage = match side {
+        Side::Mine => 3,
+        Side::Other => 2,
     };
     let out = git(root, env, &["show", &format!(":{stage}:{path}")])?;
     if !out.status.success() {

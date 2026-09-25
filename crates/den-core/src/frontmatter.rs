@@ -120,7 +120,7 @@ pub fn set_field(buf: &mut TextBuf, key: &str, value: Option<&str>) {
 
 /// Writes a value as a plain YAML scalar when that reads back unchanged, and
 /// quoted otherwise.
-fn scalar(value: &str) -> String {
+pub(crate) fn scalar(value: &str) -> String {
     let plain = !value.is_empty()
         && !value.starts_with([
             '-', '?', ':', ',', '[', ']', '{', '}', '#', '&', '*', '!', '|', '>', '\'', '"', '%',

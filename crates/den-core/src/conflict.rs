@@ -226,6 +226,13 @@ pub fn combine(ours: &[String], base: Option<&[String]>, theirs: &[String]) -> O
         return None;
     }
     let (b, o, t) = (entries(base)?, entries(ours)?, entries(theirs)?);
+    // A task gone from both sides while both sides added one is the same
+    // line reworded twice: only the person can choose the wording.
+    let gone_from_both = b.keys().any(|k| !o.contains_key(k) && !t.contains_key(k));
+    let added = |side: &HashMap<Key, Entry>| side.keys().any(|k| !b.contains_key(k));
+    if gone_from_both && added(&o) && added(&t) {
+        return None;
+    }
 
     let mut merged: HashMap<Key, Option<String>> = HashMap::new();
     let keys: HashSet<&Key> = b.keys().chain(o.keys()).chain(t.keys()).collect();
@@ -261,14 +268,25 @@ pub fn combine(ours: &[String], base: Option<&[String]>, theirs: &[String]) -> O
             None => out.push(line.clone()),
         }
     }
-    let mut after: Option<Key> = None;
+    // Lines only theirs added go after the nearest line before them (on
+    // their side) that is in the result; when every line before them is
+    // gone (reworded on our side), they keep their place by position.
+    let mut before: Vec<Key> = Vec::new();
     for line in theirs {
         let Some(key) = key_of(line) else { continue };
         if !o.contains_key(&key) && !b.contains_key(&key) {
-            let at = after
-                .as_ref()
-                .and_then(|k| placed.get(k))
-                .map_or(0, |i| i + 1);
+            let anchored = before
+                .iter()
+                .rev()
+                .find_map(|k| placed.get(k))
+                .map(|i| i + 1);
+            let at = anchored.unwrap_or_else(|| {
+                before
+                    .iter()
+                    .filter(|k| b.contains_key(*k))
+                    .count()
+                    .min(out.len())
+            });
             if let Some(Some(text)) = merged.get(&key) {
                 out.insert(at, text.clone());
                 for index in placed.values_mut() {
@@ -279,9 +297,7 @@ pub fn combine(ours: &[String], base: Option<&[String]>, theirs: &[String]) -> O
                 placed.insert(key.clone(), at);
             }
         }
-        if placed.contains_key(&key) {
-            after = Some(key);
-        }
+        before.push(key);
     }
     Some(out)
 }
@@ -476,6 +492,46 @@ mod tests {
 
         let clash = conflicted("- [ ] B\n", "- [ ] A\n- [ ] B\n", "- [x] A\n- [ ] B #y\n");
         assert!(combine_all(&clash).is_none());
+    }
+
+    #[test]
+    fn the_same_task_reworded_on_both_machines_needs_the_person() {
+        let text = conflicted(
+            "- [ ] Register the domain name\n",
+            "- [ ] Register the domain\n",
+            "- [ ] Register a domain\n",
+        );
+        assert!(combine_all(&text).is_none());
+        let adjacent = conflicted(
+            "- [ ] Alpha reworded\n- [ ] Beta\n",
+            "- [ ] Alpha\n- [ ] Beta\n",
+            "- [ ] Alpha\n- [ ] Beta reworded\n",
+        );
+        let out = combine_all(&adjacent).unwrap();
+        assert!(
+            out.contains("\n- [ ] Alpha reworded\n- [ ] Beta reworded\n"),
+            "each side reworded a different line; order kept: {out}"
+        );
+    }
+
+    #[test]
+    fn a_task_of_only_tags_is_never_duplicated() {
+        // Finishing it keeps its name, so a tag added elsewhere combines…
+        let done = conflicted(
+            "- [x] #errand @done(2026-09-24)\n",
+            "- [ ] #errand\n",
+            "- [ ] #errand\n- [ ] Other\n",
+        );
+        let out = combine_all(&done).unwrap();
+        assert_eq!(out.matches("#errand").count(), 1, "{out}");
+        // …but its tags are its name, so retagging it on one side while
+        // the other finishes it is for the person to settle.
+        let retagged = conflicted(
+            "- [x] #errand @done(2026-09-24)\n",
+            "- [ ] #errand\n",
+            "- [ ] #errand #today\n",
+        );
+        assert!(combine_all(&retagged).is_none());
     }
 
     #[test]

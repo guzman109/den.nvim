@@ -162,7 +162,7 @@ impl Vault {
         tz: &TimeZone,
         lines: Option<&LineTimes>,
     ) -> Review {
-        let docs = self.scoped_docs(scope);
+        let docs = self.history_docs(scope);
 
         let from = minus_days(today, 13);
         let mut per_day: BTreeMap<Date, usize> =
@@ -258,7 +258,8 @@ impl Vault {
                         .iter()
                         .filter(|(_, t)| t.state != State::Dropped)
                         .filter(|(_, t)| {
-                            !(t.state == State::Done && t.done.is_some_and(|d| d <= date))
+                            // Ticked by hand with no @done date: done as of today.
+                            !(t.state == State::Done && t.done.unwrap_or(today) <= date)
                         })
                         .filter(|(path, t)| {
                             // An open task counts from the day it was first
@@ -312,7 +313,7 @@ impl Vault {
         let total_seconds = worked.iter().map(|w| w.seconds).sum();
 
         let mut finished = Vec::new();
-        for doc in self.scoped_docs(&Scope::All) {
+        for doc in self.history_docs(&Scope::All) {
             for task in &doc.parsed.tasks {
                 if task.state == State::Done && task.done == Some(date) {
                     finished.push(Finished {

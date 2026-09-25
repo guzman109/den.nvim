@@ -145,3 +145,28 @@ fn a_day_in_facts() {
     assert_eq!(quiet.total_seconds, 0);
     assert!(quiet.worked.is_empty() && quiet.finished.is_empty());
 }
+
+#[test]
+fn a_task_ticked_without_a_date_leaves_the_burndown_today() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("projects")).unwrap();
+    std::fs::write(
+        dir.path().join("projects/shed.md"),
+        "---\ndue: 2026-10-10\ncreated: 2026-09-20\n---\n# Shed\n\n- [x] Buy paint\n- [ ] Paint\n",
+    )
+    .unwrap();
+    let vault = Vault::open(dir.path()).unwrap();
+    let log = TimerLog::load(dir.path(), "test").unwrap();
+    let today = date(2026, 9, 24);
+    let r = vault.review(&Scope::All, &log, today, now(), &TimeZone::UTC, None);
+    let b = &r.burndowns[0];
+    let at = |d| {
+        b.points
+            .iter()
+            .find(|p: &&DayCount| p.date == d)
+            .unwrap()
+            .count
+    };
+    assert_eq!(at(date(2026, 9, 23)), 2);
+    assert_eq!(at(today), 1);
+}

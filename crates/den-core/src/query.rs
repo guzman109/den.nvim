@@ -126,15 +126,31 @@ impl Vault {
         }
     }
 
-    /// The documents a scope covers, excluding archived projects (unless the
-    /// scope names one) and templates.
+    /// The documents a scope covers: for everything, files in no project or
+    /// in an active, unlocked one (the projects the Tasks screen shows, so
+    /// every count agrees with it); for one project, its own files. Never
+    /// templates or locked files.
     pub(crate) fn scoped_docs(&self, scope: &Scope) -> Vec<&Doc> {
         self.docs()
             .filter(|d| d.kind != Kind::Template && !d.locked)
             .filter(|d| match scope {
                 Scope::All => self
                     .project_of(d)
-                    .is_none_or(|p| p.status() != ProjectStatus::Archived),
+                    .is_none_or(|p| !p.doc.locked && p.status() == ProjectStatus::Active),
+                Scope::Project(name) => self.project_of(d).is_some_and(|p| p.name() == name),
+            })
+            .collect()
+    }
+
+    /// The documents whose finished work counts for a scope's history (the
+    /// review, a day's facts): what was done still happened even if its
+    /// project is paused or archived now. Never templates or locked files,
+    /// nor the notes of a locked project.
+    pub(crate) fn history_docs(&self, scope: &Scope) -> Vec<&Doc> {
+        self.docs()
+            .filter(|d| d.kind != Kind::Template && !d.locked)
+            .filter(|d| match scope {
+                Scope::All => self.project_of(d).is_none_or(|p| !p.doc.locked),
                 Scope::Project(name) => self.project_of(d).is_some_and(|p| p.name() == name),
             })
             .collect()
@@ -144,6 +160,20 @@ impl Vault {
         self.scoped_docs(scope)
             .into_iter()
             .flat_map(|doc| doc.parsed.tasks.iter().map(move |t| self.row(doc, t)))
+            .collect()
+    }
+
+    /// Tasks finished in a scope's history (see [`Vault::history_docs`]).
+    fn finished_tasks(&self, scope: &Scope) -> Vec<TaskRow> {
+        self.history_docs(scope)
+            .into_iter()
+            .flat_map(|doc| {
+                doc.parsed
+                    .tasks
+                    .iter()
+                    .filter(|t| t.state == State::Done)
+                    .map(move |t| self.row(doc, t))
+            })
             .collect()
     }
 
@@ -215,11 +245,10 @@ impl Vault {
         }
 
         let week_start = today.saturating_sub(jiff::Span::new().days(6));
-        let mut closed: Vec<TaskRow> = rows
-            .iter()
-            .filter(|r| r.state == State::Done)
+        let mut closed: Vec<TaskRow> = self
+            .finished_tasks(scope)
+            .into_iter()
             .filter(|r| r.done.is_some_and(|d| d >= week_start && d <= today))
-            .cloned()
             .collect();
         closed.sort_by(|a, b| b.done.cmp(&a.done).then(a.path.cmp(&b.path)));
 
@@ -316,7 +345,11 @@ impl Vault {
         if inbox > 0 {
             out.push(Insight::Inbox { count: inbox });
         }
-        let done_today = rows.iter().filter(|r| r.done == Some(today)).count();
+        let done_today = self
+            .finished_tasks(scope)
+            .iter()
+            .filter(|r| r.done == Some(today))
+            .count();
         if done_today > 0 {
             out.push(Insight::DoneToday { count: done_today });
         }

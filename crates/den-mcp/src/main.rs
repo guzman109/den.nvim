@@ -37,6 +37,19 @@ const MAX_NOTE: usize = 200_000;
 /// Search results at most, whatever the agent asks for.
 const MAX_HITS: usize = 200;
 
+/// A note's text, cut to [`MAX_NOTE`] bytes on a character boundary, and
+/// whether it was cut.
+fn capped(text: &str) -> (&str, bool) {
+    if text.len() <= MAX_NOTE {
+        return (text, false);
+    }
+    let mut end = MAX_NOTE;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    (&text[..end], true)
+}
+
 fn instructions() -> String {
     format!(
         "Den keeps the person's projects, tasks, notes and journal as Markdown files in one git \
@@ -426,15 +439,7 @@ impl Den {
         let Some(doc) = vault.doc(&arg.path) else {
             return fail(format!("there is no {}", arg.path));
         };
-        let mut text = doc.text.clone();
-        let cut = text.len() > MAX_NOTE;
-        if cut {
-            let mut end = MAX_NOTE;
-            while !text.is_char_boundary(end) {
-                end -= 1;
-            }
-            text.truncate(end);
-        }
+        let (text, cut) = capped(&doc.text);
         ok(&serde_json::json!({ "path": doc.path, "title": doc.title(), "text": text, "cut": cut }))
     }
 
@@ -489,7 +494,10 @@ impl Den {
             serde_json::json!({ "path": format!("{path}.age"), "locked": true })
         } else {
             match vault.doc(&path) {
-                Some(doc) => serde_json::json!({ "path": path, "text": doc.text }),
+                Some(doc) => {
+                    let (text, cut) = capped(&doc.text);
+                    serde_json::json!({ "path": path, "text": text, "cut": cut })
+                }
                 None => serde_json::json!({ "path": path, "exists": false }),
             }
         };

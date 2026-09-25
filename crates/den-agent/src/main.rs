@@ -470,6 +470,10 @@ fn respond(conn: u64, request: Request, state: &Shared) -> Result<Response, Stri
             let armored = std::fs::read_to_string(&file).map_err(|e| format!("{path}: {e}"))?;
             // Only an unlocked vault can be read, and never without the
             // person: the confirmation comes first, whoever unlocked it.
+            // Strict mode ties reads to the Neovim that unlocked the vault;
+            // this read is not tied to it on purpose, since the agent's
+            // server is never that Neovim. The fingerprint or password
+            // asked for here, for this one note, takes its place.
             if !lock_state(state).keys.contains_key(&root) {
                 return Err("the vault is locked; the person has to unlock it first".into());
             }

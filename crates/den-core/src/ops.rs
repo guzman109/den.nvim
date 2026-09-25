@@ -151,6 +151,12 @@ impl Vault {
                         let mut buf = doc.buf.clone();
                         let at =
                             last_content_line(&buf.lines, 0, buf.lines.len()).map_or(0, |i| i + 1);
+                        if crate::parse::inside_fence(&buf.lines, at) {
+                            return Err(Error::Invalid(
+                                "inbox.md ends inside a code block that is never closed; close it first"
+                                    .into(),
+                            ));
+                        }
                         buf.lines.insert(at, line);
                         buf.trailing = true;
                         Ok(vec![change(doc, &buf)])
@@ -171,7 +177,7 @@ impl Vault {
         let line = format!("- [ ] {}", one_line(text)?);
         let doc = self.project_doc(project)?;
         let mut buf = doc.buf.clone();
-        insert_in_section(&mut buf, section, &[line]);
+        insert_in_section(&mut buf, section, &[line])?;
         Ok(vec![change(doc, &buf)])
     }
 
@@ -210,11 +216,11 @@ impl Vault {
             .map(|l| l.get(indent..).unwrap_or(l).to_string())
             .collect();
         if source.path == target.path {
-            insert_in_section(&mut source_buf, section, &block);
+            insert_in_section(&mut source_buf, section, &block)?;
             return Ok(vec![change(source, &source_buf)]);
         }
         let mut target_buf = target.buf.clone();
-        insert_in_section(&mut target_buf, section, &block);
+        insert_in_section(&mut target_buf, section, &block)?;
         Ok(vec![
             change(target, &target_buf),
             change(source, &source_buf),
@@ -231,9 +237,12 @@ impl Vault {
         let title = one_line(title)?;
         let path = format!("projects/{}.md", slug(&title));
         self.ensure_free(&path)?;
+        // A locked project of the same name would be hidden behind it.
+        self.ensure_free(&format!("{path}.age"))?;
         let mut text = String::from("---\n");
         if let Some(root) = root {
-            text.push_str(&format!("root: {}\n", contract_home(root)));
+            let root = crate::frontmatter::scalar(&contract_home(root));
+            text.push_str(&format!("root: {root}\n"));
         }
         text.push_str(&format!(
             "status: active\ncreated: {today}\n---\n# {title}\n\n## Inbox\n\n## Next actions\n"
@@ -461,11 +470,14 @@ pub fn with_state(line: &str, state: State, today: Date) -> Option<String> {
     })
 }
 
+/// `@key(YYYY-MM-DD)` exactly: other words that merely look like it (in a
+/// sentence, or with no real date) are the person's text.
 fn is_meta(word: &str, key: &str) -> bool {
     word.strip_prefix('@')
         .and_then(|w| w.strip_prefix(key))
         .and_then(|w| w.strip_prefix('('))
-        .is_some_and(|w| w.ends_with(')'))
+        .and_then(|w| w.strip_suffix(')'))
+        .is_some_and(|d| d.parse::<Date>().is_ok())
 }
 
 /// Removes every `@key(...)` word and the space before it.
@@ -497,21 +509,50 @@ fn last_content_line(lines: &[String], from: usize, to: usize) -> Option<usize> 
 
 /// Where a task's block ends: the task line plus following lines indented
 /// deeper than it.
+///
+/// Children may follow a blank line (a loose list), and indentation is
+/// measured in columns, a tab reaching the next multiple of four, as
+/// Markdown counts it.
 fn block_end(lines: &[String], index: usize) -> usize {
-    let indent = |l: &str| l.len() - l.trim_start_matches([' ', '\t']).len();
-    let base = indent(&lines[index]);
+    let width = |l: &str| {
+        let mut w = 0;
+        for c in l.chars() {
+            match c {
+                ' ' => w += 1,
+                '\t' => w += 4 - w % 4,
+                _ => break,
+            }
+        }
+        w
+    };
+    let base = width(&lines[index]);
     let mut end = index + 1;
-    while end < lines.len() && !lines[end].trim().is_empty() && indent(&lines[end]) > base {
-        end += 1;
+    let mut probe = index + 1;
+    while probe < lines.len() {
+        if lines[probe].trim().is_empty() {
+            probe += 1;
+        } else if width(&lines[probe]) > base {
+            probe += 1;
+            end = probe;
+        } else {
+            break;
+        }
     }
     end
 }
 
-/// Appends lines to the end of a section, creating the section when missing:
-/// Inbox goes before the first `##` heading, Next actions after everything.
-fn insert_in_section(buf: &mut TextBuf, section: Section, lines: &[String]) {
+/// Appends lines to the end of a section's own lines (before any
+/// subheading in it), creating the section when missing: Inbox goes before
+/// the first `##` heading, Next actions after everything. Refuses to land
+/// inside a code block that is never closed, where nothing would see them.
+fn insert_in_section(buf: &mut TextBuf, section: Section, lines: &[String]) -> Result<()> {
     let parsed: Parsed = parse(buf);
     let name = section.heading();
+    let refuse = || {
+        Err(Error::Invalid(format!(
+            "the {name} section ends inside a code block that is never closed; close it first"
+        )))
+    };
     let found = parsed
         .headings
         .iter()
@@ -519,9 +560,10 @@ fn insert_in_section(buf: &mut TextBuf, section: Section, lines: &[String]) {
         .find(|(_, h)| h.level >= 2 && h.text.eq_ignore_ascii_case(name));
     match found {
         Some((i, heading)) => {
-            let end = parsed.headings[i + 1..]
-                .iter()
-                .find(|h| h.level <= heading.level)
+            // The section's own lines end at the next heading of any level.
+            let end = parsed
+                .headings
+                .get(i + 1)
                 .map_or(buf.lines.len(), |h| h.line);
             let at = match last_content_line(&buf.lines, heading.line + 1, end) {
                 Some(last) => last + 1,
@@ -535,6 +577,9 @@ fn insert_in_section(buf: &mut TextBuf, section: Section, lines: &[String]) {
                 None => heading.line + 1,
             };
             let at = at.min(buf.lines.len());
+            if crate::parse::inside_fence(&buf.lines, at) {
+                return refuse();
+            }
             buf.lines.splice(at..at, lines.iter().cloned());
             let after = at + lines.len();
             let before_heading = heading.line + 1 == at;
@@ -560,6 +605,9 @@ fn insert_in_section(buf: &mut TextBuf, section: Section, lines: &[String]) {
                     buf.lines.splice(at..at, block);
                 }
                 _ => {
+                    if crate::parse::inside_fence(&buf.lines, buf.lines.len()) {
+                        return refuse();
+                    }
                     if buf.lines.last().is_some_and(|l| !l.trim().is_empty()) {
                         buf.lines.push(String::new());
                     }
@@ -569,6 +617,7 @@ fn insert_in_section(buf: &mut TextBuf, section: Section, lines: &[String]) {
         }
     }
     buf.trailing = true;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -595,6 +644,45 @@ mod tests {
     }
 
     #[test]
+    fn words_that_only_look_like_dates_are_kept() {
+        let line = "- [ ] Explain tokens (like @done(date))";
+        assert_eq!(
+            with_state(line, State::Doing, TODAY).unwrap(),
+            "- [/] Explain tokens (like @done(date))"
+        );
+        assert_eq!(
+            with_state(line, State::Done, TODAY).unwrap(),
+            format!("- [x] Explain tokens (like @done(date)) @done({TODAY})")
+        );
+    }
+
+    #[test]
+    fn a_block_takes_loose_and_tab_indented_children() {
+        let lines = |t: &str| TextBuf::parse(t).lines;
+        let loose = lines("- [ ] parent\n\n  more about it\n\n- [ ] next\n");
+        assert_eq!(block_end(&loose, 0), 3);
+        let tabbed = lines("  - [ ] parent\n\t- [ ] child\n  - [ ] sibling\n");
+        assert_eq!(block_end(&tabbed, 0), 2);
+    }
+
+    #[test]
+    fn a_capture_lands_before_a_subsection_of_the_inbox() {
+        let text = "## Inbox\n\n- [ ] a\n\n### Someday\n\n- [ ] later\n\n## Next actions\n";
+        assert_eq!(
+            insert(text, Section::Inbox, "- [ ] new"),
+            "## Inbox\n\n- [ ] a\n- [ ] new\n\n### Someday\n\n- [ ] later\n\n## Next actions\n"
+        );
+    }
+
+    #[test]
+    fn nothing_is_added_inside_an_unclosed_code_block() {
+        let mut buf = TextBuf::parse("# P\n\n## Inbox\n\n```\ncode\n");
+        assert!(insert_in_section(&mut buf, Section::Inbox, &["- [ ] x".into()]).is_err());
+        let mut buf = TextBuf::parse("# P\n\n```\ncode\n");
+        assert!(insert_in_section(&mut buf, Section::NextActions, &["- [ ] x".into()]).is_err());
+    }
+
+    #[test]
     fn state_changes_keep_indentation_and_bullets() {
         assert_eq!(
             with_state("   * [ ] nested", State::Doing, TODAY).unwrap(),
@@ -604,7 +692,7 @@ mod tests {
 
     fn insert(text: &str, section: Section, line: &str) -> String {
         let mut buf = TextBuf::parse(text);
-        insert_in_section(&mut buf, section, &[line.to_string()]);
+        insert_in_section(&mut buf, section, &[line.to_string()]).unwrap();
         buf.render()
     }
 
@@ -659,7 +747,9 @@ mod tests {
 
     #[test]
     fn remove_meta_leaves_other_words_alone() {
-        assert_eq!(remove_meta("a @done(x) b", "done"), "a b");
+        // Only a real date is Den's; anything else is the person's text.
+        assert_eq!(remove_meta("a @done(x) b", "done"), "a @done(x) b");
+        assert_eq!(remove_meta("a @done(2026-01-01) b", "done"), "a b");
         assert_eq!(remove_meta("a @donex b", "done"), "a @donex b");
         assert_eq!(remove_meta("a @done(2026-01-01)", "done"), "a");
     }

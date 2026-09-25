@@ -14,6 +14,30 @@ next. A change to [PLAN.md](PLAN.md) always gets an entry here.
 
 ---
 
+## 2026-09-25 · Fixes: the bug hunt and the second security review
+
+**Did**
+- Fixed the bug hunt's 18 confirmed bugs and most of the suspected ones,
+  and every finding of the second security review, each with a
+  regression test (BUGS.md, B-009). The worst were data loss in the
+  Neovim apply path, sync conflicts combined wrongly, and symlinks that
+  could steer a write into `.git/hooks`.
+- Found and fixed a freeze when setup runs twice.
+- CI: actions pinned to commits, write permission only where releases
+  are published.
+
+**Decided**
+- Den never stops a sync outside a rebase (`--no-autostash`), so "mine" is
+  always the second side of a conflict.
+- Every writer outside Neovim treats files with unsaved Neovim changes as
+  off limits, through a per-process list in the state folder.
+
+**Next**
+- B-010: pin "now" in the tests; 4 Neovim tests fail on any day after the
+  fixtures' date.
+
+---
+
 ## 2026-09-24 · Build: M9, the agent; GitHub CI; bigger focus rings
 
 **Did**

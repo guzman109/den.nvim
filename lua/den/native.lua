@@ -33,6 +33,14 @@ function M.need()
   return mod
 end
 
+--- An engine error as the person should read it: without the Lua error
+--- kind in front or the stack traceback behind.
+function M.message(err)
+  local text = tostring(err):gsub("^runtime error: ", "")
+  text = text:gsub("\nstack traceback:.*$", "")
+  return text
+end
+
 --- Calls into the engine, turning an engine error into (nil, message).
 function M.call(name, ...)
   local mod = M.need()
@@ -40,7 +48,7 @@ function M.call(name, ...)
   if ok then
     return result
   end
-  return nil, (tostring(result):gsub("^runtime error: ", ""))
+  return nil, M.message(result)
 end
 
 --- Installs the engine: the prebuilt release for this version when there

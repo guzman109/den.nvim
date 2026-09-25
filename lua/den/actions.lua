@@ -131,9 +131,12 @@ function M.move(row, project, section)
   if not ok then
     return
   end
+  -- With no project named, a task in a project's note moves into the
+  -- project's own file.
+  local name = project or (row.project and row.project.name)
   local target = row.path
-  if project then
-    local p = native.call("project", project)
+  if name then
+    local p = native.call("project", name)
     target = p and p.path or target
   end
   if target ~= row.path then

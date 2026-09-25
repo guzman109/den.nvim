@@ -6,6 +6,9 @@ finished. Milestones and exit criteria are in [PLAN.md](PLAN.md).
 
 ## Inbox
 
+- [ ] Pin "now" in debug builds for the tests (BUGS.md, B-010) #tests
+- [ ] Two machines with the same default hostname share one timer log; warn, or ask for a name #sync
+
 ## M0 · Fresh start
 
 - [x] Work on a branch (claude/app-design-discussion-96381b) instead of main #git @done(2026-09-24)
