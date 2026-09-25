@@ -30,6 +30,67 @@ pub fn same_user(stream: &UnixStream, me: nix::unistd::Uid) -> bool {
     }
 }
 
+/// Whether the person's screen is locked right now. Asked only while a key
+/// is held; any doubt reads as "not locked", so a broken check never locks
+/// the person out, it only keeps the idle and sleep rules.
+pub fn screen_locked() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("/usr/sbin/ioreg")
+            .args(["-n", "Root", "-d1", "-a"])
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .is_ok_and(|out| macos_locked(&String::from_utf8_lossy(&out.stdout)))
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let me = nix::unistd::getuid().as_raw().to_string();
+        let run = |args: &[&str]| {
+            std::process::Command::new("loginctl")
+                .args(args)
+                .env("PATH", "/usr/bin:/bin")
+                .stdin(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        };
+        let Some(list) = run(&["list-sessions", "--no-legend"]) else {
+            return false;
+        };
+        linux_sessions(&list, &me).iter().any(|id| {
+            run(&["show-session", id, "-p", "LockedHint", "--value"])
+                .is_some_and(|v| v.trim() == "yes")
+        })
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        false
+    }
+}
+
+/// macOS lists `CGSSessionScreenIsLocked` = true for a console session
+/// while its screen is locked (the key is absent otherwise).
+pub fn macos_locked(plist: &str) -> bool {
+    let key = "<key>CGSSessionScreenIsLocked</key>";
+    plist
+        .match_indices(key)
+        .any(|(at, _)| plist[at + key.len()..].trim_start().starts_with("<true/>"))
+}
+
+/// This user's session ids from `loginctl list-sessions --no-legend`.
+pub fn linux_sessions(list: &str, uid: &str) -> Vec<String> {
+    list.lines()
+        .filter_map(|line| {
+            let mut words = line.split_whitespace();
+            let id = words.next()?;
+            (words.next()? == uid).then(|| id.to_string())
+        })
+        .collect()
+}
+
 /// Keeps a value's memory out of swap.
 #[allow(unsafe_code)]
 pub fn keep_out_of_swap<T>(value: &T) {
@@ -190,4 +251,25 @@ pub fn touch_id_store(_: &Path, _: &VaultKey) -> Result<(), String> {
 #[cfg(not(target_os = "macos"))]
 pub fn touch_id_unlock(_: &Path) -> Result<VaultKey, String> {
     Err("Touch ID is only on macOS; use a YubiKey or the password here".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_locked_mac_screen_is_recognised() {
+        let unlocked = "<dict>\n\t<key>kCGSSessionOnConsoleKey</key>\n\t<true/>\n</dict>";
+        assert!(!macos_locked(unlocked));
+        let locked = "<dict>\n\t<key>CGSSessionScreenIsLocked</key>\n\t<true/>\n\t<key>kCGSSessionOnConsoleKey</key>\n\t<true/>\n</dict>";
+        assert!(macos_locked(locked));
+        let explicit_no = "<key>CGSSessionScreenIsLocked</key>\n<false/>";
+        assert!(!macos_locked(explicit_no));
+    }
+
+    #[test]
+    fn only_this_users_linux_sessions_are_asked_about() {
+        let list = "  2 1000 sam  seat0 tty2\n  5 1001 kim  seat0 tty3\n c7 1000 sam        \n";
+        assert_eq!(linux_sessions(list, "1000"), vec!["2", "c7"]);
+    }
 }

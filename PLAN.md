@@ -239,9 +239,8 @@ to a pipe Neovim is watching; Lua wakes up and collects it.
   wrapped copy of that key: Touch ID (macOS), system password prompt with
   optional fingerprint (Linux), YubiKey, password, recovery key.
 - den-agent holds the unlocked key for the session, over a user-only socket.
-  The key never leaves it; it forgets on idle, sleep, a time limit or
-  `den lock` (screen lock: not yet). Strict mode: one unlock per Neovim
-  session.
+  The key never leaves it; it forgets on idle, sleep, screen lock, a time
+  limit or `den lock`. Strict mode: one unlock per Neovim session.
 - Locked notes open into memory-only buffers (no swap, no undo files). Git
   gets diff and merge helpers. Timer log lines for locked notes store no text.
 - **As built.** Notes are armored age files encrypted to the vault's public
@@ -257,7 +256,8 @@ to a pipe Neovim is watching; Lua wakes up and collects it.
   turn that the listener is den-agent itself, so nothing else can collect a
   password. It forgets after `lock.forget_after_minutes` (15) unused,
   `lock.max_hours` (8) after unlocking however much it is used, on sleep,
-  and on `den lock`, and in strict mode when the unlocking Neovim goes.
+  when the screen locks (checked every few seconds while a key is held:
+  `ioreg` on macOS, `loginctl` on Linux), and on `den lock`, and in strict mode when the unlocking Neovim goes.
   Adding a way in (a new password, a YubiKey, Touch ID) asks for the
   current password or the recovery key again. Each clone pins the vault's
   public key (in its local git config) at its first unlock and encrypts

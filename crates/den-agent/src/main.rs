@@ -10,7 +10,7 @@
 //! - after `lock.forget_after_minutes` without use (15 by default),
 //! - `lock.max_hours` after unlocking, however much it is used (8),
 //! - when the computer sleeps (the wall clock jumps ahead of the monotonic
-//!   one),
+//!   one) or the screen locks,
 //! - on `den lock`,
 //! - in strict mode, when the Neovim that unlocked it goes away.
 //!
@@ -186,9 +186,11 @@ fn prepare(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Forgets keys left unused too long, and all keys after a sleep.
+/// Forgets keys left unused too long, and all keys after a sleep or while
+/// the screen is locked.
 fn watch(state: Shared) {
     let tick = Duration::from_secs(1);
+    let mut ticks: u64 = 0;
     let mut wall = SystemTime::now();
     let mut mono = Instant::now();
     loop {
@@ -198,8 +200,13 @@ fn watch(state: Shared) {
         let mono_passed = now_mono.duration_since(mono);
         let slept = wall_passed > mono_passed + Duration::from_secs(30);
         (wall, mono) = (now_wall, now_mono);
+        ticks += 1;
+        // The screen is asked about every few seconds, and only while there
+        // is a key to forget.
+        let holding = !lock_state(&state).keys.is_empty();
+        let locked = holding && ticks % 3 == 0 && platform::screen_locked();
         let mut s = lock_state(&state);
-        if slept {
+        if slept || locked {
             s.keys.clear();
             continue;
         }

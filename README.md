@@ -205,8 +205,8 @@ shows what changed inside locked notes while unlocked; plain `git diff`
 never does.
 
 The key lives only in `den-agent`, a small program that starts when needed
-and forgets the key after 15 minutes unused, when the computer sleeps, or on
-`:Den lock`. Locked notes open in buffers with no swap or undo file, and
+and forgets the key after 15 minutes unused, when the computer sleeps or the
+screen locks, or on `:Den lock`. Locked notes open in buffers with no swap or undo file, and
 while one is open Neovim stops saving registers and search history. Locking
 a note does not remove its earlier versions from git history.
 

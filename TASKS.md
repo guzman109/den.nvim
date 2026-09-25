@@ -106,7 +106,8 @@ finished. Milestones and exit criteria are in [PLAN.md](PLAN.md).
 - [ ] Try a YubiKey with age-plugin-yubikey (needs the key) #lock
 - [ ] Sign den-agent with the owner's Developer ID, and make the Touch ID copy a biometric keychain item (B-007) #lock
 - [ ] A release signing key: `release/allowed_signers` in the plugin, SHA256SUMS signed by the owner (B-007) #release
-- [ ] Forget the key when the screen locks (sleep and idle already do) #lock
+- [x] Forget the key when the screen locks (macOS ioreg, Linux loginctl) #lock @done(2026-09-24)
+- [ ] See the screen-lock forgetting happen on a real locked screen (tests only parse sample output) #lock
 - [ ] Linux: a system password prompt (polkit) as an unlock method; for now YubiKey or password #lock
 - [x] Locked folders: new notes and journal pages in a folder with `.den-locked` start locked (`den lock folder`) #lock @done(2026-09-24)
 - [x] Fix the security review's findings (B-008); the rest are listed in B-007 #lock @done(2026-09-24)
