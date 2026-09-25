@@ -11,7 +11,13 @@ name = "den"
 path = "src/main.rs"
 
 [dependencies]
+clap.workspace = true
 den-core.workspace = true
+jiff.workspace = true
+
+[dev-dependencies]
+jiff.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true

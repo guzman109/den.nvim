@@ -22,6 +22,11 @@ M.groups = {
   DenTimer = { link = "DiagnosticWarn" },
   DenNudge = { link = "DiagnosticError" },
   DenSync = { link = "Comment" },
+  DenStatus = { link = "StatusLine" },
+  DenStatusTimer = { link = "DiagnosticWarn" },
+  DenStatusDue = { link = "DiagnosticWarn" },
+  DenStatusOverdue = { link = "DiagnosticError" },
+  DenStatusDone = { link = "DiagnosticOk" },
   DenSyncProblem = { link = "DiagnosticError" },
 }
 

@@ -121,26 +121,52 @@ impl TimerLog {
         Ok(log)
     }
 
+    /// Reads only this machine's log: enough to know what is running, and
+    /// quick even when the other machines' logs are long.
+    pub fn load_own(vault_root: &Path, machine: &str) -> Result<TimerLog> {
+        let mut log = TimerLog {
+            dir: TimerLog::dir(vault_root),
+            machine: machine.to_string(),
+            entries: Vec::new(),
+            problems: Vec::new(),
+        };
+        let own = log.own_file();
+        log.read_files(vec![own])?;
+        Ok(log)
+    }
+
     pub fn reload(&mut self) -> Result<()> {
-        self.entries.clear();
-        self.problems.clear();
         let listing = match std::fs::read_dir(&self.dir) {
             Ok(listing) => listing,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                self.entries.clear();
+                self.problems.clear();
+                return Ok(());
+            }
             Err(e) => return Err(Error::io(&self.dir, e)),
         };
-        let mut files: Vec<PathBuf> = listing
+        let files: Vec<PathBuf> = listing
             .flatten()
             .map(|e| e.path())
             .filter(|p| p.extension().is_some_and(|x| x == "jsonl"))
             .collect();
+        self.read_files(files)
+    }
+
+    fn read_files(&mut self, mut files: Vec<PathBuf>) -> Result<()> {
+        self.entries.clear();
+        self.problems.clear();
         files.sort();
         for file in files {
             let machine = file
                 .file_stem()
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            let text = std::fs::read_to_string(&file).map_err(|e| Error::io(&file, e))?;
+            let text = match std::fs::read_to_string(&file) {
+                Ok(text) => text,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(Error::io(&file, e)),
+            };
             for (i, line) in text.lines().enumerate() {
                 if line.trim().is_empty() {
                     continue;

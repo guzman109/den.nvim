@@ -20,11 +20,42 @@ search.
 
 ## Open
 
-None yet: the rebuild has no code.
+None.
 
 ## Closed
 
-None yet.
+### B-001 · The Tasks view took 225 ms on a large vault
+- Found: 2026-09-24, measuring a synthetic 5,000-file vault
+- Status: closed (42132e8)
+- Where: den-core query.rs, vault.rs
+- Steps: `cargo test --release -p den-core --test vault -- --ignored --nocapture`
+- Expected: a few milliseconds
+- Actual: 225 ms; every project lookup scanned every file, once per task
+- Fix: projects are looked up by path; each view groups notes once
+- Test: `load_time_for_five_thousand_notes` (6.6 ms after)
+
+### B-002 · Highlights past the end of a screen line
+- Found: 2026-09-24, Neovim tests
+- Status: closed (3509438)
+- Where: lua/den/ui/screen.lua
+- Steps: open the Tasks screen with a row that has trailing spaces
+- Expected: the screen draws
+- Actual: "Invalid 'col': out of range" — trimming spaces left highlight ranges
+  beyond the line
+- Fix: highlight ranges are clamped to the line's length
+- Test: every screen test draws rows with trimmed ends
+
+### B-003 · Neovim test summary lost when output went to a file
+- Found: 2026-09-24, running `scripts/test-nvim.sh > log`
+- Status: closed
+- Where: tests/nvim/run.lua, scripts/test-nvim.sh
+- Steps: redirect the test run to a file
+- Expected: every result line and the summary
+- Actual: the last buffered lines, including the summary, were lost at exit,
+  so a run looked like it stopped early — and would have passed even if it had
+- Fix: output is line-buffered and flushed before exit; the script fails when
+  the summary line is missing
+- Test: the script's own check
 
 ## Lessons from the old engine
 

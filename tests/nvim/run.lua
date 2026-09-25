@@ -4,6 +4,8 @@
 -- and a private state folder.
 
 local root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h:h")
+-- Line by line, so nothing is lost when output goes to a file and Neovim exits.
+io.stdout:setvbuf("line")
 vim.opt.rtp:prepend(root)
 vim.cmd("runtime plugin/den.lua")
 
@@ -122,10 +124,12 @@ end
 local files = vim.fn.glob(root .. "/tests/nvim/test_*.lua", false, true)
 table.sort(files)
 for _, file in ipairs(files) do
+  io.write("# " .. vim.fn.fnamemodify(file, ":t") .. "\n")
   T.fresh()
   dofile(file)
 end
 
 io.write(string.format("\n%d tests, %d failed\n", count, #failures))
+io.stdout:flush()
 vim.fn.delete(tmp, "rf")
 os.exit(#failures == 0 and 0 or 1)

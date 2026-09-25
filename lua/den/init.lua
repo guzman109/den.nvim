@@ -27,6 +27,7 @@ function M.setup(opts)
   end
   started = true
   require("den.autocmds").setup(M.options)
+  require("den.statusline").setup()
   return true
 end
 
@@ -68,6 +69,11 @@ function M.find()
   if M.ensure() then
     require("den.commands").subcommands.find({})
   end
+end
+
+--- The statusline component (see lua/den/statusline.lua).
+function M.statusline()
+  return require("den.statusline").string()
 end
 
 function M.search()

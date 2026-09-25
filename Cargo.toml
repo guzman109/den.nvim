@@ -10,6 +10,7 @@ repository = "https://gitlab.com/cguz109/Den"
 
 [workspace.dependencies]
 den-core = { path = "crates/den-core" }
+clap = { version = "4", features = ["derive"] }
 gethostname = "1"
 jiff = { version = "0.2", features = ["serde"] }
 notify = "8"

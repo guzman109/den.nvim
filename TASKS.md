@@ -60,12 +60,12 @@ finished. Milestones and exit criteria are in [PLAN.md](PLAN.md).
 
 ## M4 · Timer and `den`
 
-- [ ] Timer log `.den/log/<machine>.jsonl`: start, pause, stop, rename #engine
-- [ ] One running timer; starting a task marks it `[/]` #engine
-- [ ] Follow renames made inside Neovim so timer history stays attached #engine
-- [ ] Statusline component: timer + at most two insights, in priority order #nvim
-- [ ] `den` command: `prompt`, `capture`, `status` #cli
-- [ ] starship module example; keep `den prompt` to a few milliseconds #cli
+- [x] Timer log `.den/log/<machine>.jsonl`: start, pause, stop, rename #engine @done(2026-09-24)
+- [x] One running timer; starting a task marks it `[/]` #engine @done(2026-09-24)
+- [x] Follow renames made inside Neovim so timer history stays attached #engine @done(2026-09-24)
+- [x] Statusline component: timer + at most two insights, in priority order #nvim @done(2026-09-24)
+- [x] `den` command: `prompt`, `capture`, `status` #cli @done(2026-09-24)
+- [x] starship module example; keep `den prompt` to a few milliseconds #cli @done(2026-09-24)
 
 ## M5 · Sync
 

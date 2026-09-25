@@ -14,6 +14,33 @@ next. A change to [PLAN.md](PLAN.md) always gets an entry here.
 
 ---
 
+## 2026-09-24 · Build: M4, timer, statusline, `den`
+
+**Did**
+- The statusline component: the running timer, then at most two insights
+  (engine insights and registered extras compete by priority), then status
+  items such as sync. It caches what it shows and never calls the engine
+  while drawing; a one-second tick runs only while a timer does.
+- The `den` command: `prompt`, `capture`, `status`, `tasks`, `stop`.
+  `den prompt` reads only the project files and this machine's timer log
+  (new engine entry points `Vault::open_only`, `TimerLog::load_own`):
+  median 3.3 ms over 50 runs, release build.
+- README with install, keys, statusline (mini.statusline and plain) and
+  starship setup.
+
+**Decided**
+- `den prompt` never prints an error; `den status` is where problems show.
+- The new Den keeps the `den` Lua module name because it replaces den.nvim;
+  the README says to remove the old plugin.
+- New dependency: `clap`, for the `den` command.
+
+**Found and fixed:** B-003 (the Neovim test summary could be lost, and a
+partial run could pass).
+
+**Next:** M5, sync.
+
+---
+
 ## 2026-09-24 · Build: M3, the Neovim plugin
 
 **Did**

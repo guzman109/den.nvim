@@ -146,11 +146,19 @@ pub struct Vault {
     root: PathBuf,
     docs: BTreeMap<String, Doc>,
     problems: Vec<Problem>,
+    /// Only these kinds are read, when set.
+    only: Option<Vec<Kind>>,
 }
 
 impl Vault {
     /// Reads every file in the vault. The folder must exist; it may be empty.
     pub fn open(root: impl Into<PathBuf>) -> Result<Vault> {
+        Vault::open_only(root, None)
+    }
+
+    /// Reads only some kinds of file, for callers that must be quick, such as
+    /// the shell prompt reading just the projects.
+    pub fn open_only(root: impl Into<PathBuf>, only: Option<&[Kind]>) -> Result<Vault> {
         let root = root.into();
         let meta = std::fs::metadata(&root).map_err(|e| Error::io(&root, e))?;
         if !meta.is_dir() {
@@ -163,6 +171,7 @@ impl Vault {
             root,
             docs: BTreeMap::new(),
             problems: Vec::new(),
+            only: only.map(<[Kind]>::to_vec),
         };
         vault.rescan()?;
         Ok(vault)
@@ -189,7 +198,8 @@ impl Vault {
     /// keeping any overlays.
     pub fn rescan(&mut self) -> Result<()> {
         let mut found = Vec::new();
-        collect(&self.root, &self.root, &mut found).map_err(|e| Error::io(&self.root, e))?;
+        collect(&self.root, &self.root, self.only.as_deref(), &mut found)
+            .map_err(|e| Error::io(&self.root, e))?;
         let overlays: BTreeMap<String, String> = self
             .docs
             .values()
@@ -420,7 +430,12 @@ pub fn classify(path: &str) -> Option<(Kind, bool)> {
     Some((kind, locked))
 }
 
-fn collect(root: &Path, dir: &Path, out: &mut Vec<(String, Kind, bool)>) -> std::io::Result<()> {
+fn collect(
+    root: &Path,
+    dir: &Path,
+    only: Option<&[Kind]>,
+    out: &mut Vec<(String, Kind, bool)>,
+) -> std::io::Result<()> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound && dir != root => return Ok(()),
@@ -436,7 +451,20 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<(String, Kind, bool)>) -> std:
         let file_type = std::fs::metadata(&path).map(|m| m.file_type());
         let Ok(file_type) = file_type else { continue };
         if file_type.is_dir() {
-            collect(root, &path, out)?;
+            let skip = dir == root
+                && only.is_some_and(|kinds| {
+                    let kind = match name {
+                        "projects" => Kind::Project,
+                        "notes" => Kind::Note,
+                        "daily" => Kind::Daily,
+                        "templates" => Kind::Template,
+                        _ => return true,
+                    };
+                    !kinds.contains(&kind)
+                });
+            if !skip {
+                collect(root, &path, only, out)?;
+            }
         } else if file_type.is_file() {
             let Ok(inner) = path.strip_prefix(root) else {
                 continue;
@@ -449,7 +477,9 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<(String, Kind, bool)>) -> std:
             else {
                 continue;
             };
-            if let Some((kind, locked)) = classify(&rel) {
+            if let Some((kind, locked)) = classify(&rel)
+                && only.is_none_or(|kinds| kinds.contains(&kind))
+            {
                 out.push((rel, kind, locked));
             }
         }
