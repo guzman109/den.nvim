@@ -122,17 +122,31 @@ Neovim without Den. Den adds only what markview does not know, such as `@due`.
 
 - **Automatic.** Den commits after about 30 seconds without changes
   (`den: <machine>, 3 changes`). When Neovim starts and every few minutes it
-  runs `git pull --rebase`, then `git push`.
+  runs `git pull --rebase`, then `git push`. While a vault buffer has unsaved
+  edits, syncs wait for the save, so a pull never lands under an edit in
+  progress. Changes still waiting when Neovim quits are handed to a
+  `den sync` that outlives it. A new vault's first sync pushes to its remote
+  and tracks it.
 - **Writes use the `git` command**, so SSH config, keys, ssh-agent, credential
   helpers and encryption tools (git-crypt, git-remote-gcrypt) all work.
   **Reads use gitoxide**: status, ahead/behind, history, blame.
-- **Passphrases.** Den ships an askpass helper that asks inside Neovim with a
-  hidden input. Background sync never prompts; it pauses and the statusline
-  says `sync paused · key locked`. `:Den sync` runs in the foreground and asks.
-- **Conflicts.** Sync stops and leaves files alone; the statusline says
-  `sync conflict · <file>`. Den explains the conflict in task terms ("this
-  machine finished it, the other started it") and offers to combine, keep
-  either side, or fix by hand.
+- **Passphrases.** The `den` binary doubles as SSH's and git's askpass: run
+  by a foreground sync, it asks inside Neovim (over Neovim's own socket) with
+  a hidden input. Background sync never prompts, including for commit
+  signing; it pauses and the statusline says `sync paused · key locked`.
+  `:Den sync` runs in the foreground and asks. From a shell, `den sync` asks
+  on the terminal as git always does.
+- **Conflicts.** Sync asks git for `diff3` conflicts, so Den sees what each
+  side changed. When every changed line is a task and the two machines
+  changed different things about it (one finished it, the other tagged it),
+  Den combines them and carries on without asking: a tag either side added
+  is kept, a tag either side removed stays removed, finishing beats dropping
+  beats starting, and two different due dates are a real conflict. Anything
+  else stops the sync with the files untouched beyond git's markers; the
+  statusline says `sync conflict · :Den sync`, and the Conflicts screen shows
+  each one as "this machine" and "other machine (name)" with keys to combine,
+  keep either side, keep both, or edit by hand. The sync finishes when the
+  last one is settled.
 - **Hash.** SHA-1 for now. Converting to SHA-256 later is cheap because nothing
   depends on the notes' commit hashes.
 

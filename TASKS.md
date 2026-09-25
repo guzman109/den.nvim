@@ -69,13 +69,15 @@ finished. Milestones and exit criteria are in [PLAN.md](PLAN.md).
 
 ## M5 · Sync
 
-- [ ] `den init`: set up a vault repository with `.gitignore` for the index #sync
-- [ ] Commit after ~30 s without changes #sync
-- [ ] `pull --rebase` and `push` on start and on an interval #sync
-- [ ] `den askpass`: hidden passphrase input inside Neovim #sync
-- [ ] Background sync never prompts: `sync paused · key locked` #sync
-- [ ] Conflicts: stop, explain in task terms, offer combine / keep either / by hand #sync
-- [ ] gitoxide reads: changes waiting to sync, capture age from history #sync
+- [x] `den init [--remote]`: set up a vault repository with `.gitignore` for the index #sync @done(2026-09-24)
+- [x] Commit after ~30 s without changes #sync @done(2026-09-24)
+- [x] `pull --rebase` and `push` on start and on an interval #sync @done(2026-09-24)
+- [x] Askpass: hidden passphrase input inside Neovim (`den` over Neovim's socket) #sync @done(2026-09-24)
+- [x] Background sync never prompts: `sync paused · key locked` #sync @done(2026-09-24)
+- [x] Conflicts: combine task edits that do not overlap; otherwise stop and offer combine / keep either / both / by hand #sync @done(2026-09-24)
+- [x] gitoxide reads: changes waiting to sync, capture age from history #sync @done(2026-09-24)
+- [x] Syncs wait while a vault buffer has unsaved edits; a detached `den sync` sends what is left on quit #sync @done(2026-09-24)
+- [ ] Try sync against a real remote on two machines, with a locked SSH key #sync
 
 ## M6 · Review, journal, nudges
 

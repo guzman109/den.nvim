@@ -20,7 +20,8 @@ vim.pack.add({ "https://gitlab.com/cguz109/Den" })
 require("den").setup({ vault = "~/Notes/den" })
 ```
 
-Then build the engine once (and after each update):
+Then build the engine (and the `den` command it uses for passphrase prompts)
+once, and after each update:
 
 ```vim
 :Den build
@@ -86,6 +87,7 @@ Den adds no key mappings. Everything is under `:Den`:
 | `:Den notes` | this project's notes |
 | `:Den project [new]` | link this folder to a project, or create one |
 | `:Den timer [stop]` | what is being timed, or stop it |
+| `:Den sync` | sync now (asks for a passphrase if needed), or settle conflicts |
 | `:Den build` · `:Den health` | build the engine · `:checkhealth den` |
 
 Map what you use, for example:
@@ -133,6 +135,8 @@ den capture --to website Buy a domain
 den status              # project, timer, what needs attention
 den tasks [--all]
 den stop                # stop the timer
+den sync [--continue]   # commit, pull, push
+den init [folder] [--remote url]
 ```
 
 For starship, in `~/.config/starship.toml`:
@@ -147,6 +151,28 @@ style = "yellow"
 
 `den prompt` reads only the project files and this machine's timer log, so it
 takes a few milliseconds, and it prints nothing rather than an error.
+
+## Sync
+
+The vault is one git repository. Den commits about 30 seconds after edits
+settle (`den: <machine>, 3 changes`), and pulls and pushes when Neovim
+starts and every few minutes. It waits while a vault buffer has unsaved
+edits.
+
+```sh
+den init ~/Notes/den --remote git@gitlab.com:you/notes.git   # a new vault
+den sync                                                  # by hand, from a shell
+```
+
+A background sync never asks for anything. If your SSH key (or commit signing
+key) is locked, the statusline says `sync paused · key locked`; run
+`:Den sync`, and Den asks for the passphrase inside Neovim.
+
+When two machines edit the same task (one finishes it, the other tags it),
+Den combines the edits. When they really disagree, the statusline says
+`sync conflict · :Den sync`, and `:Den sync` opens the Conflicts screen:
+`c` combine · `m` mine · `t` theirs · `b` both · `e` edit by hand. The sync
+finishes when the last one is settled.
 
 ## Settings
 

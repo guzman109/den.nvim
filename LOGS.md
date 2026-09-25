@@ -14,6 +14,49 @@ next. A change to [PLAN.md](PLAN.md) always gets an entry here.
 
 ---
 
+## 2026-09-24 · Build: M5, sync
+
+**Did**
+- den-core `sync`: gitoxide reads (changes waiting, ahead/behind, upstream,
+  a stopped rebase, conflicted files, when each line was first committed);
+  git-command writes (commit, `pull --rebase --autostash` with diff3
+  conflicts, push, first push with tracking). A lock file keeps two syncs
+  apart. Three prompt modes: never (background), askpass (Neovim), terminal
+  (`den sync` in a shell).
+- den-core `conflict`: reads diff3 hunks, combines task edits that do not
+  overlap, settles a hunk by choice. Sync combines automatically when every
+  hunk in every file combines, and otherwise stops for the person.
+- `den sync [--continue]`, `den init [folder] [--remote url]`, and `den` as
+  an askpass program: SSH runs it with the prompt, it asks Neovim over
+  Neovim's msgpack-RPC socket and prints the answer.
+- Neovim: background syncs (start, quiet period after edits, every few
+  minutes), `:Den sync [continue]`, the Conflicts screen, a quiet statusline
+  segment that only speaks when something is wrong, capture ages on the Inbox
+  (`3d`), sync lines in `:checkhealth den`.
+- Tests: 11 engine sync tests against a bare remote and two clones
+  (including a fake `ssh` that proves background mode passes
+  `BatchMode=yes` and never asks), 10 conflict unit tests, 2 CLI tests,
+  8 Neovim tests (askpass end to end through the real binary, a conflict
+  settled on the screen, a locked key).
+- Checked against the owner's real git setup: background commits are
+  signed through the SSH agent (87 ms) without prompting.
+
+**Decided**
+- Conflicts that are only task edits to different fields combine without
+  asking (PLAN.md, Sync). Everything else still stops.
+- Syncs wait while a vault buffer has unsaved edits.
+- On quit, a detached `den sync` sends what is waiting.
+- Askpass is the `den` binary itself (`DEN_ASKPASS=1`), not a subcommand,
+  because SSH runs the askpass program with only the prompt as argument.
+- `den init --remote` exists because identity and signing keys are often
+  chosen by remote (`includeIf hasconfig:remote.*.url`); without a remote a
+  new repository may have no identity at all, and git says so.
+- New dependency: `rmpv` (planned), for talking to Neovim.
+
+**Next:** M6, review, journal and nudges.
+
+---
+
 ## 2026-09-24 · Build: M4, timer, statusline, `den`
 
 **Did**

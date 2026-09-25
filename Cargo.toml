@@ -12,6 +12,8 @@ repository = "https://gitlab.com/cguz109/Den"
 den-core = { path = "crates/den-core" }
 clap = { version = "4", features = ["derive"] }
 gethostname = "1"
+rmpv = "1"
+gix = { version = "0.87", default-features = false, features = ["sha1", "status", "blame", "revision"] }
 jiff = { version = "0.2", features = ["serde"] }
 notify = "8"
 serde = { version = "1", features = ["derive"] }

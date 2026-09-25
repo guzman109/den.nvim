@@ -5,6 +5,7 @@ local rows = require("den.ui.rows")
 local actions = require("den.actions")
 local native = require("den.native")
 local state = require("den.state")
+local util = require("den.util")
 
 local M = {}
 
@@ -41,6 +42,12 @@ local function render(ctx, width)
     push(S.add(S.line(), "  " .. group.label, group.project and "DenGroup" or "DenMuted"))
     for _, row in ipairs(group.tasks) do
       row.key = rows.key(row)
+      -- How long it has waited, from the sync history (nothing until the
+      -- capture has been committed once).
+      local at = mod.captured_at(row.path, row.raw)
+      if at then
+        row.age = util.age(os.time() - at)
+      end
       push(rows.line(row, cols, draw, false), row)
     end
   end

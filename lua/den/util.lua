@@ -99,6 +99,21 @@ function M.clock(seconds)
   return string.format("%02d:%02d", m, s)
 end
 
+--- How long ago something was written: "12m", "5h", "3d", "2w", "4mo".
+function M.age(seconds)
+  seconds = math.max(0, math.floor(seconds or 0))
+  if seconds < 3600 then
+    return math.max(1, math.floor(seconds / 60)) .. "m"
+  elseif seconds < 86400 then
+    return math.floor(seconds / 3600) .. "h"
+  elseif seconds < 14 * 86400 then
+    return math.floor(seconds / 86400) .. "d"
+  elseif seconds < 60 * 86400 then
+    return math.floor(seconds / (7 * 86400)) .. "w"
+  end
+  return math.floor(seconds / (30 * 86400)) .. "mo"
+end
+
 --- A task row's reference for the engine.
 function M.ref(row)
   return { path = row.path, line = row.line, raw = row.raw }

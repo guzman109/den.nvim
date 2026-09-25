@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 gethostname.workspace = true
+gix.workspace = true
 jiff.workspace = true
 notify.workspace = true
 serde.workspace = true

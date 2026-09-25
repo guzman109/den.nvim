@@ -6,17 +6,23 @@
 //! den status            what Den knows about this folder
 //! den tasks [--all]     open tasks as plain text
 //! den stop              stop the timer
+//! den sync [--continue] commit, pull and push the vault
+//! den init [folder]     make a folder a vault
 //! ```
 //!
 //! `den prompt` runs before every shell prompt, so it reads only what it
 //! needs (the project files and this machine's timer log) and never prints an
 //! error: a broken prompt is worse than an empty one.
 
+mod askpass;
+
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use den_core::query::{Insight, Scope, TaskRow};
+use den_core::sync::{self, Outcome};
 use den_core::timer::TimerLog;
 use den_core::{Config, Kind, State, Vault};
 use jiff::Timestamp;
@@ -59,11 +65,36 @@ enum Command {
     },
     /// Stop the timer.
     Stop,
+    /// Commit every change, pull the other machines' work, and push.
+    Sync {
+        /// Finish a sync that stopped at a conflict, once every file is settled.
+        #[arg(long = "continue")]
+        resume: bool,
+    },
+    /// Make a folder a vault: the folders, the journal template and a git
+    /// repository. Files already there are kept.
+    Init {
+        /// Defaults to the vault in the config.
+        folder: Option<PathBuf>,
+        /// The git remote to sync with, added before the first commit (so
+        /// git settings chosen by remote, such as who you are and your
+        /// signing key, apply from the start).
+        #[arg(long)]
+        remote: Option<String>,
+    },
 }
 
 type Result<T> = std::result::Result<T, String>;
 
 fn main() -> ExitCode {
+    // SSH and git run this binary as their askpass program with the prompt
+    // as the only argument.
+    if std::env::var_os("DEN_ASKPASS").is_some() {
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        if let [prompt] = args.as_slice() {
+            return askpass::run(prompt);
+        }
+    }
     let cli = Cli::parse();
     if let Command::Prompt { plain } = cli.command {
         if let Ok(line) = prompt(cli.vault.as_deref(), plain)
@@ -79,6 +110,8 @@ fn main() -> ExitCode {
         Command::Status => status(cli.vault.as_deref()),
         Command::Tasks { all } => tasks(cli.vault.as_deref(), all),
         Command::Stop => stop(cli.vault.as_deref()),
+        Command::Sync { resume } => sync_vault(cli.vault.as_deref(), resume),
+        Command::Init { folder, remote } => init(cli.vault.as_deref(), folder, remote),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -276,5 +309,109 @@ fn stop(vault: Option<&Path>) -> Result<()> {
         Some(r) => println!("stopped {}", r.task),
         None => println!("no timer running"),
     }
+    Ok(())
+}
+
+/// Secrets are asked for on the terminal when there is one.
+fn sync_env() -> sync::Env {
+    sync::Env {
+        prompt: if std::io::stdin().is_terminal() {
+            sync::Prompt::Terminal
+        } else {
+            sync::Prompt::Never
+        },
+        extra: Vec::new(),
+    }
+}
+
+/// What a sync did, in words.
+pub fn describe(outcome: &Outcome) -> String {
+    match outcome {
+        Outcome::UpToDate => "up to date".to_string(),
+        Outcome::Synced {
+            committed,
+            pulled,
+            pushed,
+            combined,
+        } => {
+            let mut parts = Vec::new();
+            if *committed > 0 {
+                parts.push(format!(
+                    "saved {committed} {}",
+                    if *committed == 1 { "change" } else { "changes" }
+                ));
+            }
+            if *pulled {
+                parts.push("pulled".to_string());
+            }
+            if *combined > 0 {
+                parts.push(format!("combined {combined} edits from two machines"));
+            }
+            if *pushed {
+                parts.push("pushed".to_string());
+            }
+            parts.join(", ")
+        }
+        Outcome::Local { committed } => {
+            format!("saved {committed} changes (no remote to push to)")
+        }
+        Outcome::KeyLocked { message } => format!("paused, the key is locked: {message}"),
+        Outcome::Offline { message } => format!("offline: {message}"),
+        Outcome::Conflict { files } => format!(
+            "both machines changed the same lines in {}; settle them in Neovim with :Den sync, or edit the markers and run den sync --continue",
+            files.join(", ")
+        ),
+        Outcome::Busy => "another sync is running".to_string(),
+        Outcome::NotARepo => "the vault is not a git repository; run den init".to_string(),
+        Outcome::Failed { message } => format!("failed: {message}"),
+    }
+}
+
+fn sync_vault(vault: Option<&Path>, resume: bool) -> Result<()> {
+    let (config, root) = setup(vault)?;
+    let env = sync_env();
+    let outcome = if resume {
+        sync::continue_after_conflict(&root, &config.machine_name(), &env)
+    } else {
+        sync::run(&root, &config.machine_name(), &env)
+    };
+    let text = describe(&outcome);
+    match outcome {
+        Outcome::UpToDate | Outcome::Synced { .. } | Outcome::Local { .. } => {
+            println!("{text}");
+            Ok(())
+        }
+        _ => Err(text),
+    }
+}
+
+fn init(vault: Option<&Path>, folder: Option<PathBuf>, remote: Option<String>) -> Result<()> {
+    let root = match folder {
+        Some(f) => f,
+        None => setup(vault)?.1,
+    };
+    std::fs::create_dir_all(&root).map_err(|e| format!("{}: {e}", root.display()))?;
+    let env = sync_env();
+    sync::init(&root, &env).map_err(|e| e.to_string())?;
+    if let Some(url) = &remote {
+        let out = std::process::Command::new("git")
+            .args(["remote", "add", "origin", url])
+            .current_dir(&root)
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+        }
+    }
+    let config = Config::load().map_err(|e| e.to_string())?;
+    if let Err(outcome) = sync::commit(&root, &config.machine_name(), &env) {
+        return Err(describe(&outcome));
+    }
+    let next = if remote.is_some() {
+        "; den sync sends it to the remote"
+    } else {
+        ""
+    };
+    println!("vault ready in {}{next}", root.display());
     Ok(())
 }

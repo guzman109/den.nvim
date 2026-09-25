@@ -28,6 +28,7 @@ function M.setup(opts)
   started = true
   require("den.autocmds").setup(M.options)
   require("den.statusline").setup()
+  require("den.sync").setup()
   return true
 end
 

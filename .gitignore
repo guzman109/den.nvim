@@ -4,6 +4,7 @@
 
 # The Neovim module, built from crates/den-nvim by `:Den build`.
 /lua/den_native.so
+/bin/
 
 # A vault's search index is rebuilt from its Markdown and belongs to the
 # machine. (The fixture vault's .den/log is test data and is tracked.)

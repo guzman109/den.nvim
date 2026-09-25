@@ -158,3 +158,70 @@ fn the_timer_stops_from_the_shell() {
         "the fixture log belongs to another machine"
     );
 }
+
+/// Git without the machine's own config, so signing and hooks stay out.
+const ISOLATED: [(&str, &str); 6] = [
+    ("GIT_CONFIG_GLOBAL", "/dev/null"),
+    ("GIT_CONFIG_NOSYSTEM", "1"),
+    ("GIT_AUTHOR_NAME", "Den Test"),
+    ("GIT_AUTHOR_EMAIL", "den@example.invalid"),
+    ("GIT_COMMITTER_NAME", "Den Test"),
+    ("GIT_COMMITTER_EMAIL", "den@example.invalid"),
+];
+
+fn den_git(cwd: &Path, args: &[&str]) -> (String, String, bool) {
+    let out = Command::new(env!("CARGO_BIN_EXE_den"))
+        .args(args)
+        .current_dir(cwd)
+        .env("DEN_CONFIG", cwd.join("no-config.yaml"))
+        .envs(ISOLATED)
+        .output()
+        .unwrap();
+    (
+        String::from_utf8(out.stdout).unwrap(),
+        String::from_utf8(out.stderr).unwrap(),
+        out.status.success(),
+    )
+}
+
+#[test]
+fn init_makes_a_vault_and_the_first_sync_sends_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(dir.path()).unwrap();
+    let remote = base.join("remote.git");
+    let status = Command::new("git")
+        .args(["init", "-q", "--bare", "-b", "main"])
+        .arg(&remote)
+        .envs(ISOLATED)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let vault = base.join("vault");
+    let (out, err, ok) = den_git(
+        &base,
+        &[
+            "init",
+            vault.to_str().unwrap(),
+            "--remote",
+            remote.to_str().unwrap(),
+        ],
+    );
+    assert!(ok, "{err}");
+    assert!(out.starts_with("vault ready in "), "{out}");
+    assert!(vault.join("templates/daily.md").is_file());
+
+    let (out, err, ok) = den_git(&base, &["sync", "--vault", vault.to_str().unwrap()]);
+    assert!(ok, "{err}");
+    assert_eq!(out, "pushed\n");
+    let (out, _, ok) = den_git(&base, &["sync", "--vault", vault.to_str().unwrap()]);
+    assert!(ok);
+    assert_eq!(out, "up to date\n");
+}
+
+#[test]
+fn sync_outside_a_repository_says_what_to_do() {
+    let s = setup();
+    let (_, err, ok) = den(&s, &s.code, &["sync"]);
+    assert!(!ok);
+    assert!(err.contains("run den init"), "{err}");
+}

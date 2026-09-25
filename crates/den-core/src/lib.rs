@@ -15,12 +15,14 @@
 //! a file that moved underneath us is refused rather than overwritten.
 
 pub mod config;
+pub mod conflict;
 pub mod error;
 pub mod frontmatter;
 pub mod ops;
 pub mod parse;
 pub mod query;
 pub mod slug;
+pub mod sync;
 pub mod text;
 pub mod timer;
 pub mod vault;

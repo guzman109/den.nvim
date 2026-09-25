@@ -90,6 +90,9 @@ M.subcommands = {
       end
     end
   end),
+  sync = needs_vault(function(args)
+    require("den.sync").command(args)
+  end),
   build = function()
     require("den.native").build()
   end,
@@ -126,6 +129,9 @@ function M.complete(arglead, cmdline)
   end
   if words[2] == "project" then
     return { "new" }
+  end
+  if words[2] == "sync" then
+    return { "continue" }
   end
   return {}
 end

@@ -185,6 +185,23 @@ pub fn parse(buf: &TextBuf) -> Parsed {
     out
 }
 
+/// One line read as a task on its own, outside any file (line 0, no section).
+pub fn task(line: &str) -> Option<Task> {
+    let item = task_line(line)?;
+    let tokens = tokens(&item.text);
+    Some(Task {
+        line: 0,
+        indent: item.indent,
+        state: item.state,
+        title: tokens.title,
+        tags: tokens.tags,
+        due: tokens.due,
+        done: tokens.done,
+        text: item.text,
+        section: None,
+    })
+}
+
 /// A list item with a checkbox, split into its parts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskLine {

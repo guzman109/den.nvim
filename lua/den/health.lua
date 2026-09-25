@@ -34,6 +34,39 @@ function M.check()
     h.info("not started yet; run :Den or call require('den').setup()")
   end
 
+  if state.ready then
+    h.start("Den sync")
+    local sync = require("den.sync")
+    local settings = state.info.config.sync or {}
+    local s = native.call("sync_status") or {}
+    local snap = s.snapshot
+    if settings.enabled == false then
+      h.info("sync is off (sync.enabled: false)")
+    elseif snap and not snap.repo then
+      h.warn("the vault is not a git repository", { "Run: den init --remote <url>" })
+    elseif snap then
+      if snap.upstream then
+        h.ok("syncs with " .. snap.upstream)
+      else
+        h.info("no upstream yet; the next sync pushes to the first remote, if there is one")
+      end
+      local waiting = (snap.changes or 0) + (snap.ahead or 0)
+      h.info(("last sync: %s%s"):format(sync.describe(s.outcome), waiting > 0 and (" · " .. waiting .. " waiting") or ""))
+      if #(snap.conflicts or {}) > 0 then
+        h.warn("conflicts in " .. table.concat(snap.conflicts, ", "), { "Run :Den sync to settle them" })
+      end
+    end
+    local program = sync.program()
+    if program then
+      h.ok("passphrase prompts inside Neovim use " .. program)
+    else
+      h.warn("the den command was not found", {
+        ":Den sync cannot ask for an SSH passphrase inside Neovim",
+        "Run :Den build (builds bin/den), or cargo install --path crates/den-cli",
+      })
+    end
+  end
+
   h.start("Den companions")
   for _, dep in ipairs({
     { "markview", "draws [/], [-], #tags and frontmatter in notes" },
