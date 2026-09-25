@@ -14,6 +14,35 @@ next. A change to [PLAN.md](PLAN.md) always gets an entry here.
 
 ---
 
+## 2026-09-24 · Security review and fixes
+
+**Did**
+- An independent, read-only review of M5–M7 (locking, den-agent, askpass,
+  sync, nudges, downloads) found 16 problems, five of them serious: any
+  program running as the person could add a way in while unlocked; a
+  stand-in on the agent's socket could collect the password; a replaced
+  public key file from the remote would have redirected new locked notes;
+  a locked journal page got a plain one beside it; and nudges could be
+  switched off without the seal. Each claim was checked against the code
+  before fixing. Fixed and tested: BUGS.md, B-008. Still open, needing the
+  owner or accepted as limits: B-007.
+- Steps: today's step count from a steps file (an iOS Shortcut writing to
+  iCloud Drive), in the nudge window and the focus rings.
+
+**Decided**
+- Adding a way to unlock needs the current password or recovery key.
+- Each clone pins the vault's public key at unlock; before its first
+  unlock, a clone locks nothing.
+- Diffs of locked notes are opt-in (`DEN_SHOW_LOCKED=1`).
+- The "back on" file for nudges lives in root's folder, owned by the
+  person, and is compared by change time.
+- PLAN.md now says plainly what locking does not do.
+
+**Next:** M8 needs the owner: the Dioxus recommendation and a design on the
+canvas. M9 waits until asked.
+
+---
+
 ## 2026-09-24 · Build: M7, locking
 
 **Did**

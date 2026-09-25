@@ -269,6 +269,7 @@ impl Vault {
         let title = one_line(title)?;
         let path = format!("notes/{}.md", slug(&title));
         self.ensure_free(&path)?;
+        self.ensure_free(&format!("{path}.age"))?;
         if let Some(name) = project {
             self.project_doc(name)?;
         }
@@ -277,6 +278,16 @@ impl Vault {
             text.push_str(&format!("project: {name}\n"));
         }
         text.push_str(&format!("created: {today}\n---\n# {title}\n\n"));
+        self.new_file(path, text)
+    }
+
+    /// A new file, locked when its folder says new notes start locked.
+    fn new_file(&self, path: String, text: String) -> Result<Vec<Change>> {
+        let dir = path.rsplit_once('/').map_or("", |(d, _)| d);
+        if crate::lock::folder_is_locked(self.root(), dir) {
+            let armored = crate::lock::encrypt(&crate::lock::recipient(self.root())?, &text)?;
+            return Ok(vec![Change::write(format!("{path}.age"), None, armored)]);
+        }
         Ok(vec![Change::write(path, None, text)])
     }
 
@@ -294,7 +305,7 @@ impl Vault {
             .replace("{{date}}", &date.to_string())
             .replace("{{title}}", &long_date(date))
             .replace("{{weekday}}", weekday(date));
-        Ok(vec![Change::write(path, None, text)])
+        self.new_file(path, text)
     }
 
     fn project_doc(&self, name: &str) -> Result<&Doc> {

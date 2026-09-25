@@ -127,8 +127,75 @@ pub fn is_set_up(root: &Path) -> bool {
     keys(root).join("recipient").is_file()
 }
 
-/// The vault's public key.
+/// The vault's public key, as the synced key file says, checked against the
+/// copy this machine pinned when it last unlocked.
+///
+/// The key file travels with the vault, so a hostile remote could replace
+/// it and have every note locked afterwards encrypted to someone else. Each
+/// clone therefore keeps its own copy (in its local git config), taken from
+/// the real key at setup or unlock, and Den encrypts nothing until the two
+/// agree. A vault that is not a git repository has no remote to fear and
+/// uses the file alone.
 pub fn recipient(root: &Path) -> Result<x25519::Recipient> {
+    let from_file = recipient_file(root)?;
+    match pinned(root) {
+        Some(pin) if pin == from_file.to_string() => Ok(from_file),
+        Some(_) => Err(Error::Lock(
+            "the vault's public key file (.den/keys/recipient) no longer matches the key this machine \
+             unlocked with; Den locks nothing until that is sorted out (see git log for who changed it)"
+                .into(),
+        )),
+        None if is_git_repo(root) => Err(Error::Lock(
+            "unlock the vault once on this machine before locking notes here (den unlock)".into(),
+        )),
+        None => Ok(from_file),
+    }
+}
+
+fn is_git_repo(root: &Path) -> bool {
+    root.join(".git").exists()
+}
+
+fn git_config(root: &Path, args: &[&str]) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .args(["config", "--local"])
+        .args(args)
+        .current_dir(root)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// This clone's pinned copy of the vault's public key.
+pub fn pinned(root: &Path) -> Option<String> {
+    if !is_git_repo(root) {
+        return None;
+    }
+    git_config(root, &["--get", "den.recipient"]).filter(|s| !s.is_empty())
+}
+
+/// Pins the public key of a key that was just set up or unwrapped. Only
+/// the real key's own public half is ever pinned.
+pub fn pin(root: &Path, key: &VaultKey) -> Result<()> {
+    if !is_git_repo(root) {
+        return Ok(());
+    }
+    let value = key.recipient().to_string();
+    if pinned(root).as_deref() == Some(value.as_str()) {
+        return Ok(());
+    }
+    git_config(root, &["den.recipient", &value])
+        .map(|_| ())
+        .ok_or_else(|| {
+            Error::Lock("could not record the vault's key in this clone's git config".into())
+        })
+}
+
+/// The public key as the synced key file says, unchecked.
+fn recipient_file(root: &Path) -> Result<x25519::Recipient> {
     let path = keys(root).join("recipient");
     let text = std::fs::read_to_string(&path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
@@ -153,7 +220,8 @@ pub fn methods(root: &Path) -> Vec<Method> {
 fn write_key_file(root: &Path, name: &str, text: &str) -> Result<()> {
     let dir = keys(root);
     std::fs::create_dir_all(&dir).map_err(|e| Error::io(&dir, e))?;
-    crate::write::write_atomically(&dir.join(name), text.as_bytes())
+    let path = crate::write::resolve(root, &format!("{KEYS_DIR}/{name}"))?;
+    crate::write::write_atomically(&path, text.as_bytes())
 }
 
 /// Stores a wrapped copy of `key`, readable with `recipient`.
@@ -220,7 +288,7 @@ pub fn unwrap(root: &Path, method: Method, identity: &dyn age::Identity) -> Resu
     let mut secret = Zeroizing::new(String::new());
     std::io::Read::read_to_string(&mut reader, &mut secret).map_err(crypto)?;
     let key = VaultKey::from_secret(&SecretString::from(secret.as_str().to_string()))?;
-    if key.recipient().to_string() != recipient(root)?.to_string() {
+    if key.recipient().to_string() != recipient_file(root)?.to_string() {
         return Err(Error::Lock(format!(
             "{} holds a key for a different vault",
             method.file()
@@ -537,6 +605,49 @@ mod tests {
         let reworded = "# Plan, revised\n\n- [ ] Book the room\n- [ ] Send invites\n";
         let retitled = "# The plan\n\n- [ ] Book the room\n- [ ] Send invites\n";
         assert_eq!(merge_text(base, reworded, retitled), None);
+    }
+
+    #[test]
+    fn a_swapped_public_key_stops_locking_in_a_git_clone() {
+        let (dir, s) = vault_with_keys();
+        let root = dir.path();
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(root)
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .output()
+                .unwrap()
+        };
+        git(&["init", "-q"]);
+        // A fresh clone has no pin yet: nothing is encrypted until an unlock.
+        assert!(
+            recipient(root)
+                .unwrap_err()
+                .to_string()
+                .contains("unlock the vault once")
+        );
+        pin(root, &s.key).unwrap();
+        assert_eq!(
+            recipient(root).unwrap().to_string(),
+            s.key.recipient().to_string()
+        );
+
+        // Someone replaces the synced key file with their own key.
+        let theirs = VaultKey::generate();
+        std::fs::write(
+            root.join(".den/keys/recipient"),
+            format!("{}\n", theirs.recipient()),
+        )
+        .unwrap();
+        let err = recipient(root).unwrap_err().to_string();
+        assert!(err.contains("no longer matches"), "{err}");
+        // And an unlock notices too: the real key is not the file's.
+        let err = unwrap_password(root, password("correct horse"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("different vault"), "{err}");
     }
 
     #[test]

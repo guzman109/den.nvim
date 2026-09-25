@@ -65,7 +65,7 @@ function M.install(opts, done)
     done(false, msg)
   end
   local function fetch(name, cb, optional)
-    run({ "curl", "-fsSL", "--proto", "=https,file", "-o", dir .. "/" .. name, url(template, version, name) }, nil, function(ok, res)
+    run({ "curl", "-fsSL", "--proto", "=https,file", "--proto-redir", "=https", "-o", dir .. "/" .. name, url(template, version, name) }, nil, function(ok, res)
       if not ok and not optional then
         return fail(("could not download %s (%s)"):format(name, vim.trim(res.stderr or "")))
       end
@@ -89,18 +89,31 @@ function M.install(opts, done)
             if not ok then
               return fail("could not unpack " .. file .. ": " .. vim.trim(res.stderr or ""))
             end
-            -- New files rather than overwrites: macOS caches signatures per
-            -- file, and a library changed in place can be refused.
             vim.fn.mkdir(root .. "/lua", "p")
             vim.fn.mkdir(root .. "/bin", "p")
+            -- Every file is copied in beside its old one first; only when
+            -- all are there does each replace the old one, so a failure
+            -- never leaves a mix of versions.
+            local files = vim.tbl_filter(function(file)
+              return vim.uv.fs_stat(dir .. "/" .. file) ~= nil
+            end, { "lua/den_native.so", "bin/den", "bin/den-agent" })
             local moved = true
-            for _, file in ipairs({ "lua/den_native.so", "bin/den", "bin/den-agent" }) do
-              if vim.uv.fs_stat(dir .. "/" .. file) then
+            for _, file in ipairs(files) do
+              local staged = root .. "/" .. file .. ".new"
+              os.remove(staged)
+              moved = moved and vim.uv.fs_copyfile(dir .. "/" .. file, staged) and true
+              vim.uv.fs_chmod(staged, 493)
+            end
+            if moved then
+              for _, file in ipairs(files) do
+                -- A new file rather than an overwrite: macOS caches code
+                -- signatures per file.
                 os.remove(root .. "/" .. file)
-                moved = moved and vim.uv.fs_copyfile(dir .. "/" .. file, root .. "/" .. file) and true
-                if file:match("^bin/") then
-                  vim.uv.fs_chmod(root .. "/" .. file, 493)
-                end
+                moved = moved and vim.uv.fs_rename(root .. "/" .. file .. ".new", root .. "/" .. file) and true
+              end
+            else
+              for _, file in ipairs(files) do
+                os.remove(root .. "/" .. file .. ".new")
               end
             end
             vim.fn.delete(dir, "rf")

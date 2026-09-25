@@ -488,3 +488,54 @@ fn load_time_for_five_thousand_notes() {
         view.open
     );
 }
+
+#[test]
+fn a_locked_folder_makes_new_pages_locked_and_a_locked_page_is_not_shadowed() {
+    let (dir, vault) = scratch();
+    let root = dir.path();
+    let setup = den_core::lock::setup(root, "correct horse".to_string().into(), Some(10)).unwrap();
+    std::fs::write(
+        root.join("daily")
+            .join(den_core::lock::LOCKED_FOLDER_MARKER),
+        "",
+    )
+    .unwrap();
+    let day = date(2026, 9, 30);
+    let changes = vault.plan_daily(day).unwrap();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].path, "daily/2026-09-30.md.age");
+    assert!(!changes[0].after.contains("## On my mind"));
+    assert!(
+        setup
+            .key
+            .decrypt(&changes[0].after)
+            .unwrap()
+            .contains("## On my mind")
+    );
+    apply(root, &changes, &BTreeSet::new()).unwrap();
+
+    // With the locked page there, no plain page is ever planned beside it.
+    let vault = Vault::open(root).unwrap();
+    assert!(vault.plan_daily(day).unwrap().is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn the_vault_does_not_follow_links_out_of_itself() {
+    let (dir, _) = scratch();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(
+        outside.path().join("elsewhere.md"),
+        "# Elsewhere\n\n- [ ] Not a vault task\n",
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(outside.path(), dir.path().join("notes/away")).unwrap();
+    std::os::unix::fs::symlink(
+        outside.path().join("elsewhere.md"),
+        dir.path().join("notes/linked.md"),
+    )
+    .unwrap();
+    let vault = Vault::open(dir.path()).unwrap();
+    assert!(vault.doc("notes/away/elsewhere.md").is_none());
+    assert!(vault.doc("notes/linked.md").is_none());
+}

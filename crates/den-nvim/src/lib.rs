@@ -974,11 +974,14 @@ struct NudgeInput {
     #[serde(default)]
     answers: den_core::nudge::Answers,
     uid: u32,
-    back_on: Option<String>,
 }
 
-fn off_state(uid: u32, back_on: Option<&str>) -> Option<Option<jiff::civil::Date>> {
-    den_core::nudge::read_seal(&den_core::nudge::seal_path(uid), 0, back_on.map(Path::new))
+fn off_state(uid: u32) -> Option<Option<jiff::civil::Date>> {
+    den_core::nudge::read_seal(
+        &den_core::nudge::seal_path(uid),
+        0,
+        Some(&den_core::nudge::back_on_path(uid)),
+    )
 }
 
 /// Whether to nudge now: `nil`, or what to say.
@@ -996,7 +999,7 @@ fn nudge_check(lua: &Lua, input: LuaValue) -> LuaResult<LuaValue> {
             .log
             .as_ref()
             .is_some_and(|log| log.walks(now).iter().any(|(_, end)| *end > start));
-        let off = off_state(input.uid, input.back_on.as_deref());
+        let off = off_state(input.uid);
         let nudge = den_core::nudge::check(
             now,
             today,
@@ -1014,14 +1017,16 @@ fn nudge_check(lua: &Lua, input: LuaValue) -> LuaResult<LuaValue> {
 
 /// Whether nudges are off, and until when: `{ off = false }`, or
 /// `{ off = true, until = "2026-10-01" }` (no `until`: until turned back on).
-fn nudges_state(lua: &Lua, (uid, back_on): (u32, Option<String>)) -> LuaResult<LuaValue> {
+fn nudges_state(lua: &Lua, uid: u32) -> LuaResult<LuaValue> {
     #[derive(Serialize)]
     struct Out {
         off: bool,
         until: Option<jiff::civil::Date>,
         seal: String,
+        /// The file to touch to turn nudges back on.
+        back_on: String,
     }
-    let state = off_state(uid, back_on.as_deref());
+    let state = off_state(uid);
     let today = today();
     let off = match state {
         Some(None) => true,
@@ -1034,6 +1039,7 @@ fn nudges_state(lua: &Lua, (uid, back_on): (u32, Option<String>)) -> LuaResult<L
             off,
             until: state.flatten(),
             seal: den_core::nudge::seal_path(uid).display().to_string(),
+            back_on: den_core::nudge::back_on_path(uid).display().to_string(),
         },
     )
 }

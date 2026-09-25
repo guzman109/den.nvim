@@ -68,9 +68,11 @@ pub struct Sync {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Lock {
-    /// Forget the key after this long without use; 0 keeps it until sleep
-    /// or `den lock`.
+    /// Forget the key after this long without use; 0 keeps it until sleep,
+    /// the time limit below, or `den lock`.
     pub forget_after_minutes: u32,
+    /// Forget the key this long after unlocking, however much it is used.
+    pub max_hours: u32,
     /// Each Neovim unlocks for itself, and the key is forgotten when it
     /// quits.
     pub strict: bool,
@@ -80,6 +82,7 @@ impl Default for Lock {
     fn default() -> Lock {
         Lock {
             forget_after_minutes: 15,
+            max_hours: 8,
             strict: false,
         }
     }

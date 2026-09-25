@@ -103,10 +103,12 @@ finished. Milestones and exit criteria are in [PLAN.md](PLAN.md).
 - [x] Strict mode: one unlock per Neovim session #lock @done(2026-09-24)
 - [ ] Try Touch ID on the owner's Mac (needs a finger; never run by tests) #lock
 - [ ] Try a YubiKey with age-plugin-yubikey (needs the key) #lock
-- [ ] Sign den-agent with the owner's Developer ID, so the keychain entry survives updates without prompting #lock
+- [ ] Sign den-agent with the owner's Developer ID, and make the Touch ID copy a biometric keychain item (B-007) #lock
+- [ ] A release signing key: `release/allowed_signers` in the plugin, SHA256SUMS signed by the owner (B-007) #release
 - [ ] Forget the key when the screen locks (sleep and idle already do) #lock
 - [ ] Linux: a system password prompt (polkit) as an unlock method; for now YubiKey or password #lock
-- [ ] Locked folders: new notes in a folder with `.den-locked` start locked (engine check exists; wire into note creation) #lock
+- [x] Locked folders: new notes and journal pages in a folder with `.den-locked` start locked (`den lock folder`) #lock @done(2026-09-24)
+- [x] Fix the security review's findings (B-008); the rest are listed in B-007 #lock @done(2026-09-24)
 
 ## M8 · Desktop
 

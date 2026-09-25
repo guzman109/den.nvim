@@ -25,23 +25,37 @@ impl Drop for Agent {
     }
 }
 
+const AGENT: &str = env!("CARGO_BIN_EXE_den-agent");
+
 fn start(config: &str, forget_seconds: Option<u64>) -> Agent {
+    start_with(
+        config,
+        &[(
+            "DEN_TEST_FORGET_SECONDS",
+            forget_seconds.map(|s| s.to_string()),
+        )],
+    )
+}
+
+fn start_with(config: &str, extra: &[(&str, Option<String>)]) -> Agent {
     let dir = tempfile::tempdir().unwrap();
     let base = std::fs::canonicalize(dir.path()).unwrap();
     let socket = base.join("run/agent.sock");
     let vault = base.join("vault");
     std::fs::create_dir_all(&vault).unwrap();
     std::fs::write(base.join("config.yaml"), config).unwrap();
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_den-agent"));
+    let mut cmd = Command::new(AGENT);
     cmd.env("DEN_AGENT_SOCKET", &socket)
         .env("DEN_CONFIG", base.join("config.yaml"))
         .env("DEN_TEST_SCRYPT_LOG_N", "10");
-    if let Some(s) = forget_seconds {
-        cmd.env("DEN_TEST_FORGET_SECONDS", s.to_string());
+    for (key, value) in extra {
+        if let Some(v) = value {
+            cmd.env(key, v);
+        }
     }
     let child = cmd.spawn().unwrap();
     let started = Instant::now();
-    while Client::connect_to(&socket).is_err() {
+    while Client::connect_to(&socket, Some(Path::new(AGENT))).is_err() {
         assert!(
             started.elapsed() < Duration::from_secs(5),
             "the agent starts"
@@ -57,7 +71,7 @@ fn start(config: &str, forget_seconds: Option<u64>) -> Agent {
 }
 
 fn client(a: &Agent) -> Client {
-    Client::connect_to(&a.socket).unwrap()
+    Client::connect_to(&a.socket, Some(Path::new(AGENT))).unwrap()
 }
 
 fn status(c: &mut Client, vault: &Path) -> (bool, bool, Vec<String>) {
@@ -173,13 +187,27 @@ fn a_new_password_needs_the_vault_unlocked() {
     let refused = c
         .call(&Request::SetPassword {
             vault: a.vault.clone(),
+            current: "correct horse".into(),
             password: "battery staple".into(),
         })
         .unwrap_err();
     assert!(refused.to_string().contains("locked"));
     unlock(&mut c, &a.vault, UnlockMethod::Password, "correct horse").unwrap();
+    // Unlocked is not enough: adding a way in needs the current password.
+    let refused = c
+        .call(&Request::SetPassword {
+            vault: a.vault.clone(),
+            current: "a guess".into(),
+            password: "attacker's".into(),
+        })
+        .unwrap_err();
+    assert!(
+        refused.to_string().contains("not the vault password"),
+        "{refused}"
+    );
     c.call(&Request::SetPassword {
         vault: a.vault.clone(),
+        current: "correct horse".into(),
         password: "battery staple".into(),
     })
     .unwrap();
@@ -236,7 +264,7 @@ fn a_second_agent_leaves_the_first_alone() {
     let a = start("", None);
     let mut c = client(&a);
     setup(&mut c, &a.vault);
-    let out = Command::new(env!("CARGO_BIN_EXE_den-agent"))
+    let out = Command::new(AGENT)
         .env("DEN_AGENT_SOCKET", &a.socket)
         .output()
         .unwrap();
@@ -279,4 +307,45 @@ fn touch_id_and_yubikey_explain_themselves_when_not_set_up() {
         .unwrap_err()
         .to_string();
     assert!(yubi.contains("yubikey.identity"), "{yubi}");
+}
+
+#[test]
+fn an_unlock_ends_after_its_time_limit_even_when_used() {
+    let a = start_with("", &[("DEN_TEST_MAX_SECONDS", Some("2".into()))]);
+    let mut c = client(&a);
+    setup(&mut c, &a.vault);
+    let note = locked_note(&a.vault, "secret");
+    for _ in 0..8 {
+        let _ = decrypt(&mut c, &a.vault, &note);
+        std::thread::sleep(Duration::from_millis(400));
+    }
+    assert!(!status(&mut c, &a.vault).1, "forgotten despite steady use");
+}
+
+#[test]
+fn clients_refuse_anything_but_den_agent_on_the_socket() {
+    use std::os::unix::net::UnixListener;
+    let dir = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(dir.path()).unwrap();
+    let run = base.join("run");
+    std::fs::create_dir(&run).unwrap();
+    std::fs::set_permissions(&run, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let socket = run.join("agent.sock");
+    // This test program stands in for an impostor collecting passwords.
+    let listener = UnixListener::bind(&socket).unwrap();
+    std::thread::spawn(move || {
+        for conn in listener.incoming() {
+            drop(conn);
+        }
+    });
+    let err = Client::connect_to(&socket, Some(Path::new(AGENT)))
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(err.contains("not den-agent"), "{err}");
+
+    // A folder others can enter is refused before connecting at all.
+    std::fs::set_permissions(&run, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let err = Client::connect_to(&socket, None).err().unwrap().to_string();
+    assert!(err.contains("only you can open"), "{err}");
 }

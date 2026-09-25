@@ -30,6 +30,8 @@ pub enum LockCommand {
     TouchId,
     /// Teach this clone's git to diff and merge locked notes.
     Git,
+    /// New notes in this folder (and below) start locked.
+    Folder { dir: PathBuf },
 }
 
 #[derive(Subcommand)]
@@ -87,7 +89,7 @@ pub fn lock(root: &Path, what: Option<LockCommand>) -> Result<()> {
     match what {
         None => {
             // Forgetting needs no agent start: none running means nothing held.
-            if let Ok(mut c) = Client::connect() {
+            if let Ok(mut c) = Client::connect(&agent_program()) {
                 c.call(&Request::Lock).map_err(|e| e.to_string())?;
             }
             println!("locked");
@@ -150,6 +152,7 @@ pub fn lock(root: &Path, what: Option<LockCommand>) -> Result<()> {
             Ok(())
         }
         Some(LockCommand::Password) => {
+            let current = ask("Current vault password (or recovery key): ")?;
             let first = ask("New vault password: ")?;
             let again = ask("Again: ")?;
             if *first != *again {
@@ -158,6 +161,7 @@ pub fn lock(root: &Path, what: Option<LockCommand>) -> Result<()> {
             agent()?
                 .call(&Request::SetPassword {
                     vault: root.to_path_buf(),
+                    current: current.to_string(),
                     password: first.to_string(),
                 })
                 .map_err(|e| e.to_string())?;
@@ -166,9 +170,11 @@ pub fn lock(root: &Path, what: Option<LockCommand>) -> Result<()> {
         }
         Some(LockCommand::Yubikey) => {
             let (recipient, identity) = yubikey_list()?;
+            let current = ask("Vault password (or recovery key): ")?;
             agent()?
                 .call(&Request::AddYubikey {
                     vault: root.to_path_buf(),
+                    current: current.to_string(),
                     recipient,
                     identity,
                 })
@@ -177,12 +183,23 @@ pub fn lock(root: &Path, what: Option<LockCommand>) -> Result<()> {
             Ok(())
         }
         Some(LockCommand::TouchId) => {
+            let current = ask("Vault password (or recovery key): ")?;
             agent()?
                 .call(&Request::EnableTouchId {
                     vault: root.to_path_buf(),
+                    current: current.to_string(),
                 })
                 .map_err(|e| e.to_string())?;
             println!("Touch ID can unlock the vault on this Mac now (den unlock --touch-id)");
+            Ok(())
+        }
+        Some(LockCommand::Folder { dir }) => {
+            let path = vault_path(root, &dir)?;
+            let target =
+                den_core::write::resolve(root, &format!("{path}/{}", lock::LOCKED_FOLDER_MARKER))
+                    .map_err(|e| e.to_string())?;
+            den_core::write::write_atomically(&target, b"").map_err(|e| e.to_string())?;
+            println!("new notes in {path} start locked");
             Ok(())
         }
         Some(LockCommand::Git) => {
@@ -281,11 +298,24 @@ fn repo_root() -> PathBuf {
         .unwrap_or_default()
 }
 
-/// git's textconv: the decrypted note when the vault is unlocked, a short
-/// placeholder when it is not. Never starts the agent or asks anything.
+/// git's textconv: a placeholder, or the decrypted note when the vault is
+/// unlocked and `DEN_SHOW_LOCKED=1` asks for it. Opt-in, so a routine
+/// `git log -p` by any tool never prints locked notes. Never starts the
+/// agent or asks anything.
 pub fn git_textconv(file: &Path) -> Result<()> {
+    let placeholder = || {
+        Zeroizing::new(
+            "(locked note; DEN_SHOW_LOCKED=1 shows what changed while unlocked)\n".to_string(),
+        )
+    };
+    if std::env::var("DEN_SHOW_LOCKED").as_deref() != Ok("1") {
+        let mut out = std::io::stdout().lock();
+        return out
+            .write_all(placeholder().as_bytes())
+            .map_err(|e| e.to_string());
+    }
     let armored = std::fs::read_to_string(file).map_err(|e| e.to_string())?;
-    let text = Client::connect()
+    let text = Client::connect(&agent_program())
         .and_then(|mut c| {
             c.call(&Request::Decrypt {
                 vault: repo_root(),
@@ -295,9 +325,7 @@ pub fn git_textconv(file: &Path) -> Result<()> {
         .ok()
         .and_then(|r| r.text.clone())
         .map(Zeroizing::new)
-        .unwrap_or_else(|| {
-            Zeroizing::new("(locked note; run den unlock to see what changed)\n".into())
-        });
+        .unwrap_or_else(placeholder);
     let mut out = std::io::stdout().lock();
     out.write_all(text.as_bytes()).map_err(|e| e.to_string())
 }
@@ -316,7 +344,7 @@ pub fn git_merge(base: &Path, ours: &Path, theirs: &Path) -> Result<()> {
     if b == o {
         return den_core::write::write_atomically(ours, t.as_bytes()).map_err(|e| e.to_string());
     }
-    let mut client = Client::connect().map_err(|_| {
+    let mut client = Client::connect(&agent_program()).map_err(|_| {
         "the vault is locked; unlock it and sync again to combine this note".to_string()
     })?;
     let mut open = |armored: String| -> Result<Zeroizing<String>> {

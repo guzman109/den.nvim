@@ -2,8 +2,8 @@
 --
 -- Opening a `*.md.age` file in the vault asks den-agent to decrypt it into
 -- a buffer that never touches the disk in the clear: no swap file, no undo
--- file, and for the rest of the session no registers or search history in
--- ShaDa. Saving encrypts the text again (that needs only the vault's public
+-- file, and for the rest of the session no registers, command, search or
+-- input history in ShaDa. Saving encrypts the text again (that needs only the vault's public
 -- key) and writes the file atomically. The buffer never tells the engine
 -- what it holds, so locked tasks stay out of every screen.
 --
@@ -47,12 +47,13 @@ function M.protect()
   local kept = {}
   for _, part in ipairs(vim.split(vim.o.shada, ",", { trimempty = true })) do
     local c = part:sub(1, 1)
-    if c ~= "<" and c ~= '"' and c ~= "/" then
+    if c ~= "<" and c ~= '"' and c ~= "/" and c ~= ":" and c ~= "@" then
       table.insert(kept, part)
     end
   end
-  table.insert(kept, "<0")
-  table.insert(kept, "/0")
+  for _, part in ipairs({ "<0", "/0", ":0", "@0" }) do
+    table.insert(kept, part)
+  end
   vim.o.shada = table.concat(kept, ",")
 end
 
@@ -283,8 +284,20 @@ function M.setup_keys()
   end
 end
 
+--- Adding a way in needs the current password (or the recovery key), not
+--- just an unlocked vault.
+local function current_secret()
+  local current = vim.fn.inputsecret("Current vault password (or recovery key): ")
+  vim.cmd("redraw")
+  return current ~= "" and current or nil
+end
+
 --- `:Den lock password`.
 function M.change_password()
+  local current = current_secret()
+  if not current then
+    return
+  end
   local first = vim.fn.inputsecret("New vault password: ")
   local again = first ~= "" and vim.fn.inputsecret("Again: ") or ""
   vim.cmd("redraw")
@@ -292,12 +305,15 @@ function M.change_password()
     vim.notify("Den: " .. (first == "" and "nothing changed" or "the passwords differ"))
     return
   end
-  call_async({ op = "set_password", password = first })
+  call_async({ op = "set_password", current = current, password = first })
 end
 
 --- `:Den lock touch-id`.
 function M.enable_touch_id()
-  call_async({ op = "enable_touch_id" })
+  local current = current_secret()
+  if current then
+    call_async({ op = "enable_touch_id", current = current })
+  end
 end
 
 --- `:Den lock`: forget the key now, and close locked buffers.

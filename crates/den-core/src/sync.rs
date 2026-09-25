@@ -10,6 +10,8 @@
 //! background mode every way git or SSH could prompt is shut, and a sync
 //! that needs a secret reports [`Outcome::KeyLocked`] instead. A foreground
 //! sync points SSH at an askpass helper, which asks inside the editor.
+//! (gpg-agent's own pinentry, for GPG-signed commits, is outside Den's
+//! reach and may still appear.)
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -312,28 +314,45 @@ fn classify_failure(message: String) -> Outcome {
     }
 }
 
-/// Holds `.git/den-sync.lock` for the length of a sync. A lock older than
-/// ten minutes is treated as left behind by a crash.
+/// Holds `.git/den-sync.lock` for the length of a sync. The file names the
+/// process holding it; a lock whose process is gone was left by a crash and
+/// is broken. A slow sync (waiting for a passphrase) keeps its lock.
 struct Lock(PathBuf);
+
+fn alive(pid: i32) -> bool {
+    // Signal 0 checks the process exists without touching it.
+    !matches!(
+        nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None),
+        Err(nix::errno::Errno::ESRCH)
+    )
+}
 
 impl Lock {
     fn take(root: &Path) -> Option<Lock> {
+        use std::io::Write as _;
         let path = root.join(".git").join("den-sync.lock");
-        if let Ok(meta) = std::fs::metadata(&path)
-            && meta
-                .modified()
-                .ok()
-                .and_then(|m| m.elapsed().ok())
-                .is_some_and(|age| age.as_secs() > 600)
-        {
-            let _ = std::fs::remove_file(&path);
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            let holder = text.trim().parse::<i32>().ok();
+            let stale = match holder {
+                Some(pid) => !alive(pid),
+                // An old lock without a process id: stale after a while.
+                None => std::fs::metadata(&path)
+                    .ok()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|m| m.elapsed().ok())
+                    .is_some_and(|age| age.as_secs() > 3600),
+            };
+            if stale {
+                let _ = std::fs::remove_file(&path);
+            }
         }
-        std::fs::File::options()
+        let mut file = std::fs::File::options()
             .write(true)
             .create_new(true)
             .open(&path)
-            .ok()
-            .map(|_| Lock(path))
+            .ok()?;
+        let _ = write!(file, "{}", std::process::id());
+        Some(Lock(path))
     }
 }
 
@@ -502,6 +521,11 @@ fn settle(root: &Path, env: &Env) -> std::result::Result<usize, Outcome> {
             }
         }
         for (file, path, count, result) in settled {
+            let path = crate::write::resolve(root, file)
+                .map(|_| path)
+                .map_err(|e| Outcome::Failed {
+                    message: e.to_string(),
+                })?;
             crate::write::write_atomically(&path, result.as_bytes()).map_err(|e| {
                 Outcome::Failed {
                     message: e.to_string(),
@@ -647,7 +671,7 @@ pub fn take_side(root: &Path, path: &str, side: Side, env: &Env) -> Result<()> {
     if !out.status.success() {
         return Err(Error::Invalid(format!("{path}: {}", stderr(&out))));
     }
-    let target = root.join(path);
+    let target = crate::write::resolve(root, path)?;
     crate::write::write_atomically(&target, &out.stdout)?;
     let added = git(root, env, &["add", "--", path])?;
     if !added.status.success() {
@@ -672,7 +696,7 @@ pub fn init(root: &Path, env: &Env) -> Result<()> {
             .map_err(|e| Error::io(&template, e))?;
     }
     let ignore = root.join(".gitignore");
-    let wanted = ".den/index.sqlite\n.den/*.tmp\n";
+    let wanted = ".den/index.sqlite\n.den/*.tmp\n.*.den-*.tmp\n";
     let current = std::fs::read_to_string(&ignore).unwrap_or_default();
     if !current.contains(".den/index.sqlite") {
         let mut text = current;

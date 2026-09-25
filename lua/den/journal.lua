@@ -32,6 +32,11 @@ function M.refresh(date)
   end
   local day = type(date) == "string" and date or native.call("today")
   local path = native.call("abs", "daily/" .. day .. ".md")
+  if vim.uv.fs_stat(path .. ".age") then
+    -- Locked: Den cannot look inside, and does not nag about it.
+    written = true
+    return
+  end
   local f = path and io.open(path, "r")
   if not f then
     written = false
@@ -64,7 +69,10 @@ function M.open(date)
   end
   local day = date or native.call("today")
   local rel = "daily/" .. day .. ".md"
-  vim.cmd.edit(vim.fn.fnameescape(native.call("abs", rel)))
+  -- A locked page, when there is one, never gets a plain page beside it.
+  local locked = native.call("abs", rel .. ".age")
+  local path = vim.uv.fs_stat(locked) and locked or native.call("abs", rel)
+  vim.cmd.edit(vim.fn.fnameescape(path))
 end
 
 return M

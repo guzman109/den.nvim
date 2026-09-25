@@ -198,7 +198,11 @@ unlocked; locking and saving never do.
 ```
 
 From a shell: `den lock setup`, `den lock note notes/x.md`, `den unlock`,
-`den lock yubikey` (with age-plugin-yubikey), `den show notes/x.md.age`.
+`den lock yubikey` (with age-plugin-yubikey), `den lock folder daily` (new
+journal pages start locked), `den show notes/x.md.age`. Adding a way to
+unlock asks for the current password again. `DEN_SHOW_LOCKED=1 git diff`
+shows what changed inside locked notes while unlocked; plain `git diff`
+never does.
 
 The key lives only in `den-agent`, a small program that starts when needed
 and forgets the key after 15 minutes unused, when the computer sleeps, or on
@@ -207,8 +211,11 @@ while one is open Neovim stops saving registers and search history. Locking
 a note does not remove its earlier versions from git history.
 
 ```yaml
-lock: { forget_after_minutes: 15, strict: false }   # strict: each Neovim unlocks for itself
+lock: { forget_after_minutes: 15, max_hours: 8, strict: false }   # strict: each Neovim unlocks for itself
 ```
+
+What locking does and does not protect against is spelled out in PLAN.md
+(Locking).
 
 ## Settings
 

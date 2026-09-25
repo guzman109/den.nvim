@@ -4,9 +4,11 @@
 //! small process, over a Unix socket that only the same user can reach, to
 //! unlock the vault (with a password, the recovery key, a YubiKey or Touch
 //! ID) and then to decrypt notes. The key stays here, in memory kept out of
-//! swap and wiped when it is dropped. It is forgotten:
+//! swap and wiped when it is dropped (passwords and decrypted text pass
+//! through ordinary memory on their way). It is forgotten:
 //!
 //! - after `lock.forget_after_minutes` without use (15 by default),
+//! - `lock.max_hours` after unlocking, however much it is used (8),
 //! - when the computer sleeps (the wall clock jumps ahead of the monotonic
 //!   one),
 //! - on `den lock`,
@@ -34,6 +36,7 @@ use zeroize::Zeroizing;
 
 struct Held {
     key: Box<VaultKey>,
+    unlocked_at: Instant,
     last_used: Instant,
     /// In strict mode, the connection that unlocked it.
     owner: Option<u64>,
@@ -42,6 +45,7 @@ struct Held {
 struct State {
     keys: HashMap<PathBuf, Held>,
     forget_after: Option<Duration>,
+    max_age: Duration,
     strict: bool,
 }
 
@@ -56,8 +60,9 @@ fn lock_state(state: &Shared) -> MutexGuard<'_, State> {
     })
 }
 
-fn settings() -> (Option<Duration>, bool) {
+fn settings() -> (Option<Duration>, Duration, bool) {
     let config = den_core::Config::load().unwrap_or_default();
+    let max_age = Duration::from_secs(u64::from(config.lock.max_hours.clamp(1, 24)) * 3600);
     let mut forget = match config.lock.forget_after_minutes {
         0 => None,
         m => Some(Duration::from_secs(u64::from(m) * 60)),
@@ -70,7 +75,16 @@ fn settings() -> (Option<Duration>, bool) {
     {
         forget = Some(Duration::from_secs(s));
     }
-    (forget, config.lock.strict)
+    let max_age = if cfg!(debug_assertions)
+        && let Some(s) = std::env::var("DEN_TEST_MAX_SECONDS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+    {
+        Duration::from_secs(s)
+    } else {
+        max_age
+    };
+    (forget, max_age, config.lock.strict)
 }
 
 /// scrypt's work factor for new password copies: age's own choice (about a
@@ -111,10 +125,11 @@ fn main() -> ExitCode {
     };
     let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
 
-    let (forget_after, strict) = settings();
+    let (forget_after, max_age, strict) = settings();
     let state: Shared = Arc::new(Mutex::new(State {
         keys: HashMap::new(),
         forget_after,
+        max_age,
         strict,
     }));
     {
@@ -138,10 +153,29 @@ fn main() -> ExitCode {
 /// The socket's folder must exist, belong to this user, and let nobody else
 /// in.
 fn prepare(path: &Path) -> Result<(), String> {
-    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
     let dir = path.parent().ok_or("the socket path has no folder")?;
-    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+    // Looked at before anything is done to it: a planted symlink or someone
+    // else's folder is refused, never chmodded.
+    match std::fs::symlink_metadata(dir) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            return Err(format!(
+                "{} is a symlink; refusing to use it",
+                dir.display()
+            ));
+        }
+        Ok(meta) if meta.is_dir() && meta.uid() == nix::unistd::getuid().as_raw() => {
+            let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+        }
+        Ok(_) => {}
+        Err(_) => {
+            std::fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(dir)
+                .map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+    }
     let meta = std::fs::symlink_metadata(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     if !meta.is_dir() || meta.uid() != nix::unistd::getuid().as_raw() || meta.mode() & 0o077 != 0 {
         return Err(format!(
@@ -172,6 +206,9 @@ fn watch(state: Shared) {
         if let Some(limit) = s.forget_after {
             s.keys.retain(|_, held| held.last_used.elapsed() < limit);
         }
+        let max_age = s.max_age;
+        s.keys
+            .retain(|_, held| held.unlocked_at.elapsed() < max_age);
     }
 }
 
@@ -199,10 +236,15 @@ fn serve(id: u64, stream: UnixStream, state: &Shared, socket: &Path) {
             }
             Err(e) => Response::fail(format!("den-agent could not read the request: {e}")),
         };
+        let mut response = response;
         let mut out = Zeroizing::new(
             serde_json::to_string(&response)
                 .unwrap_or_else(|_| "{\"ok\":false,\"error\":\"reply\"}".to_string()),
         );
+        // Decrypted text and recovery keys are wiped once sent.
+        if let Some(text) = response.text.take() {
+            drop(Zeroizing::new(text));
+        }
         drop(response);
         out.push('\n');
         if writer.write_all(out.as_bytes()).is_err() {
@@ -249,7 +291,22 @@ fn with_key<T>(
     f(&held.key)
 }
 
+/// The person proves again that it is them (the current password, or the
+/// recovery key) before a new way to unlock is added: an unlocked vault is
+/// not enough, or any program running meanwhile could add its own.
+fn confirm(root: &Path, current: String) -> Result<(), String> {
+    let current = SecretString::from(current);
+    let held = lock::unwrap_password(root, current.clone())
+        .or_else(|_| lock::unwrap_recovery(root, &current))
+        .map_err(|_| "that is not the vault password or the recovery key".to_string())?;
+    drop(held);
+    Ok(())
+}
+
 fn keep(state: &Shared, conn: u64, root: PathBuf, key: VaultKey) {
+    // This clone remembers the real key's public half, so a swapped key
+    // file in the synced vault is noticed (see den_core::lock::recipient).
+    let _ = lock::pin(&root, &key);
     let key = Box::new(key);
     platform::keep_out_of_swap(&*key);
     let mut s = lock_state(state);
@@ -258,6 +315,7 @@ fn keep(state: &Shared, conn: u64, root: PathBuf, key: VaultKey) {
         root,
         Held {
             key,
+            unlocked_at: Instant::now(),
             last_used: Instant::now(),
             owner,
         },
@@ -350,8 +408,13 @@ fn respond(conn: u64, request: Request, state: &Shared) -> Result<Response, Stri
                 ..Response::default()
             })
         }
-        Request::SetPassword { vault, password } => {
+        Request::SetPassword {
+            vault,
+            current,
+            password,
+        } => {
             let root = vault_root(&vault)?;
+            confirm(&root, current)?;
             let password = SecretString::from(password);
             with_key(state, conn, &root, |key| {
                 lock::wrap_password(&root, key, password, work_factor()).map_err(err)
@@ -364,10 +427,12 @@ fn respond(conn: u64, request: Request, state: &Shared) -> Result<Response, Stri
         }
         Request::AddYubikey {
             vault,
+            current,
             recipient,
             identity,
         } => {
             let root = vault_root(&vault)?;
+            confirm(&root, current)?;
             with_key(state, conn, &root, |key| {
                 yubikey::wrap(&root, key, &recipient, &identity).map_err(err)
             })?;
@@ -377,8 +442,9 @@ fn respond(conn: u64, request: Request, state: &Shared) -> Result<Response, Stri
                 ..Response::default()
             })
         }
-        Request::EnableTouchId { vault } => {
+        Request::EnableTouchId { vault, current } => {
             let root = vault_root(&vault)?;
+            confirm(&root, current)?;
             with_key(state, conn, &root, |key| {
                 platform::touch_id_store(&root, key)
             })?;

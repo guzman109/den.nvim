@@ -105,16 +105,11 @@ fn init_lays_out_a_vault_and_leaves_existing_files_alone() {
         assert!(dir.path().join(sub).is_dir(), "{sub}");
     }
     assert_eq!(read(dir.path(), "templates/daily.md"), "mine");
-    assert_eq!(
-        read(dir.path(), ".gitignore"),
-        "secret/\n.den/index.sqlite\n.den/*.tmp\n"
-    );
+    let ignore = "secret/\n.den/index.sqlite\n.den/*.tmp\n.*.den-*.tmp\n";
+    assert_eq!(read(dir.path(), ".gitignore"), ignore);
     // Running it again changes nothing.
     sync::init(dir.path(), &env()).unwrap();
-    assert_eq!(
-        read(dir.path(), ".gitignore"),
-        "secret/\n.den/index.sqlite\n.den/*.tmp\n"
-    );
+    assert_eq!(read(dir.path(), ".gitignore"), ignore);
 }
 
 #[test]
@@ -356,11 +351,20 @@ fn the_first_sync_of_a_new_vault_pushes_and_tracks_the_remote() {
 #[test]
 fn a_second_sync_waits_its_turn() {
     let w = world();
-    std::fs::write(w.a.join(".git/den-sync.lock"), "").unwrap();
+    // Held by a live process (this test).
+    std::fs::write(
+        w.a.join(".git/den-sync.lock"),
+        std::process::id().to_string(),
+    )
+    .unwrap();
     assert_eq!(sync::run(&w.a, "a", &env()), Outcome::Busy);
     std::fs::remove_file(w.a.join(".git/den-sync.lock")).unwrap();
     assert_eq!(sync::run(&w.a, "a", &env()), Outcome::UpToDate);
     assert!(!w.a.join(".git/den-sync.lock").exists());
+
+    // Left behind by a process that is gone: broken, and the sync goes on.
+    std::fs::write(w.a.join(".git/den-sync.lock"), "999999").unwrap();
+    assert_eq!(sync::run(&w.a, "a", &env()), Outcome::UpToDate);
 }
 
 /// An SSH remote whose key is locked: the fake `ssh` records how it was

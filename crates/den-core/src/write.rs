@@ -65,13 +65,38 @@ pub fn apply(root: &Path, changes: &[Change], dirty: &BTreeSet<String>) -> Resul
 }
 
 /// The absolute path for a vault path, refusing anything that could escape
-/// the vault.
-fn resolve(root: &Path, path: &str) -> Result<PathBuf> {
+/// the vault: `..`, absolute paths, and symlinks (to the file or any folder
+/// on the way) that point outside it. A synced vault can carry symlinks
+/// from anywhere, so a link is followed only when it stays inside.
+pub fn resolve(root: &Path, path: &str) -> Result<PathBuf> {
     let rel = Path::new(path);
     if path.is_empty() || rel.components().any(|c| !matches!(c, Component::Normal(_))) {
         return Err(Error::OutsideVault(path.to_string()));
     }
-    Ok(root.join(rel))
+    let abs = root.join(rel);
+    let real_root = std::fs::canonicalize(root).map_err(|e| Error::io(root, e))?;
+    // The file itself, or the deepest folder on its way that exists.
+    let mut probe = abs.clone();
+    loop {
+        match std::fs::canonicalize(&probe) {
+            Ok(real) => {
+                if !real.starts_with(&real_root) {
+                    return Err(Error::OutsideVault(path.to_string()));
+                }
+                break;
+            }
+            Err(_) => {
+                // A dangling link must not be written through.
+                if std::fs::symlink_metadata(&probe).is_ok_and(|m| m.file_type().is_symlink()) {
+                    return Err(Error::OutsideVault(path.to_string()));
+                }
+                if !probe.pop() || probe == root {
+                    break;
+                }
+            }
+        }
+    }
+    Ok(abs)
 }
 
 /// Replaces a file's contents so that a crash leaves either the old file or
@@ -102,10 +127,12 @@ pub fn write_atomically(path: &Path, content: &[u8]) -> Result<()> {
     let temp = parent.join(format!(".{name}.den-{}-{unique}.tmp", std::process::id()));
 
     let result = (|| -> std::io::Result<()> {
-        let mut file = std::fs::File::options()
-            .write(true)
-            .create_new(true)
-            .open(&temp)?;
+        let mut options = std::fs::File::options();
+        options.write(true).create_new(true);
+        // Private until it takes the target's permissions below.
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        let mut file = options.open(&temp)?;
         file.write_all(content)?;
         file.sync_all()?;
         drop(file);
@@ -287,6 +314,47 @@ mod tests {
             let err = apply(dir.path(), &[change(path, None, "x")], &BTreeSet::new());
             assert!(matches!(err, Err(Error::OutsideVault(_))), "{path}");
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_out_of_the_vault_are_refused() {
+        let outside = tempfile::tempdir().unwrap();
+        let victim = outside.path().join("rc");
+        std::fs::write(&victim, "keep me\n").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::os::unix::fs::symlink(&victim, root.join("inbox.md")).unwrap();
+        std::fs::create_dir_all(root.join("notes")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.join("notes/away")).unwrap();
+        std::os::unix::fs::symlink(root.join("nowhere"), root.join("dangling.md")).unwrap();
+
+        let none = BTreeSet::new();
+        let into_file = change("inbox.md", Some("keep me\n"), "captured\n");
+        assert!(matches!(
+            apply(root, &[into_file], &none),
+            Err(Error::OutsideVault(_))
+        ));
+        let into_folder = change("notes/away/new.md", None, "x\n");
+        assert!(matches!(
+            apply(root, &[into_folder], &none),
+            Err(Error::OutsideVault(_))
+        ));
+        let dangling = change("dangling.md", None, "x\n");
+        assert!(matches!(
+            apply(root, &[dangling], &none),
+            Err(Error::OutsideVault(_))
+        ));
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep me\n");
+
+        // A link that stays inside the vault is still written through.
+        std::fs::write(root.join("real.md"), "a\n").unwrap();
+        std::os::unix::fs::symlink(root.join("real.md"), root.join("alias.md")).unwrap();
+        apply(root, &[change("alias.md", Some("a\n"), "b\n")], &none).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("real.md")).unwrap(),
+            "b\n"
+        );
     }
 
     #[test]

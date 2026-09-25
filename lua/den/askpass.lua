@@ -12,10 +12,11 @@ local M = {}
 local pending = {}
 local next_id = 0
 
---- Whether a prompt asks for something secret (rather than yes or no).
-local function secret(prompt)
+--- Whether a prompt is a yes-or-no question (SSH asking to trust a host);
+--- everything else is typed hidden and kept out of history.
+local function yes_or_no(prompt)
   local p = prompt:lower()
-  return p:find("passphrase", 1, true) or p:find("password", 1, true) or p:find("%f[%a]pin%f[%A]") ~= nil
+  return p:find("(yes/no", 1, true) ~= nil or p:find("continue connecting", 1, true) ~= nil
 end
 
 --- Starts asking. Returns an id for `result()`.
@@ -29,7 +30,7 @@ function M.begin(prompt)
       return
     end
     local text = vim.trim(prompt or "")
-    local ask = secret(text) and vim.fn.inputsecret or vim.fn.input
+    local ask = yes_or_no(text) and vim.fn.input or vim.fn.inputsecret
     local cancelled = "\0cancelled"
     local ok, value = pcall(ask, { prompt = "Den · " .. text .. " ", cancelreturn = cancelled })
     vim.cmd("redraw")

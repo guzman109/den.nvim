@@ -50,21 +50,27 @@ pub enum Request {
         vault: PathBuf,
         text: String,
     },
-    /// Replaces the password copy of the key (the vault must be unlocked).
+    /// Replaces the password copy of the key. `current` is the current
+    /// password or the recovery key: an unlocked vault alone is not enough
+    /// to add a way in.
     SetPassword {
         vault: PathBuf,
+        current: String,
         password: String,
     },
     /// Adds a YubiKey copy: the recipient and identity stub from
-    /// `age-plugin-yubikey --list`.
+    /// `age-plugin-yubikey --list`. Needs `current`, as above.
     AddYubikey {
         vault: PathBuf,
+        current: String,
         recipient: String,
         identity: String,
     },
-    /// Stores a copy of the key in this Mac's keychain for Touch ID.
+    /// Stores a copy of the key in this Mac's keychain for Touch ID. Needs
+    /// `current`, as above.
     EnableTouchId {
         vault: PathBuf,
+        current: String,
     },
     /// Forgets every key now.
     Lock,
@@ -147,11 +153,85 @@ pub fn socket_path() -> PathBuf {
     if cfg!(target_os = "macos") {
         return tmp.join("den").join("agent.sock");
     }
-    let uid = std::env::home_dir()
-        .and_then(|h| std::fs::metadata(h).ok())
-        .map(|m| std::os::unix::fs::MetadataExt::uid(&m))
-        .unwrap_or(0);
+    let uid = nix::unistd::getuid().as_raw();
     tmp.join(format!("den-{uid}")).join("agent.sock")
+}
+
+fn refused(message: impl Into<String>) -> Error {
+    Error::Lock(message.into())
+}
+
+/// The socket's folder must belong to this user and let nobody else in, or
+/// someone else could stand in for the agent.
+fn check_folder(socket: &Path) -> Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let dir = socket
+        .parent()
+        .ok_or_else(|| refused("den-agent's socket has no folder"))?;
+    let meta = std::fs::symlink_metadata(dir).map_err(|_| refused("den-agent is not running"))?;
+    if !meta.is_dir() || meta.uid() != nix::unistd::getuid().as_raw() || meta.mode() & 0o077 != 0 {
+        return Err(refused(format!(
+            "{} is not a folder only you can open; refusing to talk to whatever listens there",
+            dir.display()
+        )));
+    }
+    Ok(())
+}
+
+/// The listening process's user and program.
+fn peer(stream: &UnixStream) -> (Option<u32>, Option<PathBuf>) {
+    #[cfg(target_os = "macos")]
+    {
+        use nix::sys::socket::{getsockopt, sockopt::LocalPeerPid};
+        let uid = nix::unistd::getpeereid(stream)
+            .ok()
+            .map(|(u, _)| u.as_raw());
+        let exe = getsockopt(stream, LocalPeerPid)
+            .ok()
+            .and_then(|pid| libproc::proc_pid::pidpath(pid).ok())
+            .map(PathBuf::from);
+        (uid, exe)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
+        let Ok(cred) = getsockopt(stream, PeerCredentials) else {
+            return (None, None);
+        };
+        let exe = std::fs::read_link(format!("/proc/{}/exe", cred.pid()))
+            .ok()
+            .map(|p| {
+                // A program replaced by an update since it started.
+                let s = p.to_string_lossy();
+                PathBuf::from(s.strip_suffix(" (deleted)").unwrap_or(&s).to_string())
+            });
+        (Some(cred.uid()), exe)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = stream;
+        (None, None)
+    }
+}
+
+fn same_program(a: &Path, b: &Path) -> bool {
+    let real = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    real(a) == real(b)
+}
+
+/// Programs the agent may use (age-plugin-yubikey) are found only in the
+/// usual places, whatever PATH the first caller had.
+fn agent_path() -> String {
+    let home = std::env::home_dir().unwrap_or_default();
+    [
+        "/opt/homebrew/bin".to_string(),
+        "/usr/local/bin".to_string(),
+        "/usr/bin".to_string(),
+        "/bin".to_string(),
+        home.join(".cargo/bin").display().to_string(),
+        home.join(".local/bin").display().to_string(),
+    ]
+    .join(":")
 }
 
 pub struct Client {
@@ -160,14 +240,40 @@ pub struct Client {
 }
 
 impl Client {
-    /// Connects to a running agent.
-    pub fn connect() -> Result<Client> {
-        Client::connect_to(&socket_path())
+    /// Connects to a running agent, checking it is `agent` (the den-agent
+    /// program) running as this user.
+    pub fn connect(agent: &Path) -> Result<Client> {
+        Client::connect_to(&socket_path(), Some(agent))
     }
 
-    pub fn connect_to(path: &Path) -> Result<Client> {
-        let stream = UnixStream::connect(path)
-            .map_err(|_| Error::Lock("den-agent is not running".to_string()))?;
+    /// Connects to the socket at `path`. The folder must be private to this
+    /// user and the listener must run as this user; with `agent`, it must
+    /// also be that program, so nothing else can collect a password.
+    pub fn connect_to(path: &Path, agent: Option<&Path>) -> Result<Client> {
+        check_folder(path)?;
+        let stream = UnixStream::connect(path).map_err(|_| refused("den-agent is not running"))?;
+        let (uid, exe) = peer(&stream);
+        if uid != Some(nix::unistd::getuid().as_raw()) {
+            return Err(refused(
+                "the process on den-agent's socket is not running as you",
+            ));
+        }
+        if let Some(agent) = agent {
+            match exe {
+                Some(exe) if same_program(&exe, agent) => {}
+                Some(exe) => {
+                    return Err(refused(format!(
+                        "{} is listening on den-agent's socket, not den-agent; refusing to send it anything",
+                        exe.display()
+                    )));
+                }
+                None => {
+                    return Err(refused(
+                        "could not tell which program is listening on den-agent's socket",
+                    ));
+                }
+            }
+        }
         let writer = stream.try_clone().map_err(|e| Error::io(path, e))?;
         Ok(Client {
             reader: BufReader::new(stream),
@@ -176,23 +282,57 @@ impl Client {
     }
 
     /// Connects, starting `agent` (the den-agent program) first if none is
-    /// running.
+    /// running. The agent starts with a small, fixed environment rather than
+    /// whatever the caller had.
     pub fn connect_or_start(agent: &Path) -> Result<Client> {
         let path = socket_path();
-        if let Ok(client) = Client::connect_to(&path) {
+        if let Ok(client) = Client::connect_to(&path, Some(agent)) {
             return Ok(client);
         }
-        std::process::Command::new(agent)
-            .arg("--daemon")
+        let mut cmd = std::process::Command::new(agent);
+        cmd.arg("--daemon")
+            .env_clear()
+            .env("PATH", agent_path())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
+            .stderr(std::process::Stdio::null());
+        let kept = [
+            "HOME",
+            "USER",
+            "LOGNAME",
+            "LANG",
+            "TMPDIR",
+            "XDG_RUNTIME_DIR",
+            "XDG_CONFIG_HOME",
+            "DEN_AGENT_SOCKET",
+            "DEN_CONFIG",
+        ];
+        for key in kept {
+            if let Some(value) = std::env::var_os(key) {
+                cmd.env(key, value);
+            }
+        }
+        if cfg!(debug_assertions) {
+            for (key, value) in std::env::vars_os() {
+                if key.to_string_lossy().starts_with("DEN_TEST_") {
+                    cmd.env(key, value);
+                }
+            }
+        }
+        cmd.spawn()
             .map_err(|e| Error::Lock(format!("could not start {}: {e}", agent.display())))?;
         let started = Instant::now();
         loop {
-            if let Ok(client) = Client::connect_to(&path) {
-                return Ok(client);
+            match Client::connect_to(&path, Some(agent)) {
+                Ok(client) => return Ok(client),
+                // Something that is not den-agent answered: say so at once.
+                Err(e)
+                    if e.to_string().contains("refusing")
+                        || e.to_string().contains("not running as you") =>
+                {
+                    return Err(e);
+                }
+                Err(_) => {}
             }
             if started.elapsed() > Duration::from_secs(3) {
                 return Err(Error::Lock("den-agent did not start".to_string()));

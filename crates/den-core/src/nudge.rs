@@ -17,7 +17,6 @@
 //! the nudges off: you can't, on purpose. See [`AGENT_NOTICE`].
 
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 
 use jiff::Timestamp;
 use jiff::civil::Date;
@@ -111,6 +110,17 @@ fn pick(list: &[&str], today: Date, turn: i64) -> String {
     list[index].to_string()
 }
 
+/// The settings within sensible bounds. Extreme values (no breaks ever, a
+/// chair time of years) would switch nudges off without the seal, so they
+/// are not honored.
+pub fn clamped(settings: &Nudges) -> Nudges {
+    Nudges {
+        chair_minutes: settings.chair_minutes.clamp(30, 240),
+        snooze_minutes: settings.snooze_minutes.clamp(5, 120),
+        break_minutes: settings.break_minutes.clamp(2, 30),
+    }
+}
+
 /// Whether to nudge now. `off` is the date nudges are off until (inclusive),
 /// from [`read_seal`]; `Some(None)` means off until turned back on.
 #[allow(clippy::too_many_arguments)]
@@ -130,7 +140,14 @@ pub fn check(
         Some(Some(until)) if until >= today => return None,
         _ => {}
     }
-    if answers.skipped == Some(today) || answers.snoozed_until.is_some_and(|t| t > now) {
+    let settings = &clamped(settings);
+    // A snooze reaching further than one snooze from now was not made by
+    // `z`; it is ignored rather than trusted.
+    let longest = now.as_second() + i64::from(settings.snooze_minutes) * 60 + 60;
+    let snoozed = answers
+        .snoozed_until
+        .is_some_and(|t| t > now && t.as_second() <= longest);
+    if answers.skipped == Some(today) || snoozed {
         return None;
     }
     let away = (now.as_second() - activity.last_active.as_second()) / 60;
@@ -181,16 +198,38 @@ pub fn seal_path(uid: u32) -> PathBuf {
     seal_dir().join(format!("nudges-off-{uid}"))
 }
 
+/// The file that turns nudges back on: made by the root command next to
+/// the seal and given to the person, who can touch it (no password) but not
+/// delete or replace it, because the folder is root's.
+pub fn back_on_path(uid: u32) -> PathBuf {
+    seal_dir().join(format!("nudges-on-{uid}"))
+}
+
 /// The shell command, run as root after the person authenticates, that
 /// writes the seal. `until: None` means until turned back on. Only fixed
 /// paths and a date go into it.
 pub fn seal_command(uid: u32, until: Option<Date>) -> String {
     let dir = seal_dir().display().to_string();
     let file = seal_path(uid).display().to_string();
+    let on = back_on_path(uid).display().to_string();
     let value = until.map_or_else(|| "on-request".to_string(), |d| d.to_string());
+    // The "back on" file is made first, so the seal is the newer of the two.
     format!(
-        "umask 022 && mkdir -p '{dir}' && chown 0:0 '{dir}' 2>/dev/null; chmod 755 '{dir}' && printf 'until=%s\\n' '{value}' > '{file}.tmp' && chown 0 '{file}.tmp' && chmod 644 '{file}.tmp' && mv -f '{file}.tmp' '{file}'"
+        "umask 022 && mkdir -p '{dir}' && chown 0:0 '{dir}' 2>/dev/null; chmod 755 '{dir}' && rm -f '{on}' && touch '{on}' && chown {uid} '{on}' && chmod 644 '{on}' && printf 'until=%s\\n' '{value}' > '{file}.tmp' && chown 0 '{file}.tmp' && chmod 644 '{file}.tmp' && mv -f '{file}.tmp' '{file}'"
     )
+}
+
+/// A file's last status change. Unlike its modification time, it cannot be
+/// set back by the file's owner.
+#[cfg(unix)]
+fn changed(meta: &std::fs::Metadata) -> (i64, i64) {
+    use std::os::unix::fs::MetadataExt;
+    (meta.ctime(), meta.ctime_nsec())
+}
+
+#[cfg(not(unix))]
+fn changed(_: &std::fs::Metadata) -> (i64, i64) {
+    (0, 0)
 }
 
 #[cfg(unix)]
@@ -208,9 +247,11 @@ fn trusted(_: &std::fs::Metadata, _: u32) -> bool {
 /// that date, `Some(None)` off until turned back on, `None` on.
 ///
 /// A seal counts only when it and its folder belong to `owner` (root, 0, in
-/// real use), neither is writable by anyone else, it is a plain file, and it
-/// is newer than `back_on` (the file Den touches when the person turns nudges
-/// back on, which needs no password).
+/// real use), neither is writable by anyone else, and it is a plain file.
+/// It stops counting once the "back on" file beside it ([`back_on_path`])
+/// has changed after it: the person touches that file to turn nudges back
+/// on. Its change time cannot be set back, and it cannot be deleted from
+/// root's folder, so an old seal cannot be brought back to life.
 pub fn read_seal(path: &Path, owner: u32, back_on: Option<&Path>) -> Option<Option<Date>> {
     let meta = std::fs::symlink_metadata(path).ok()?;
     if !meta.file_type().is_file() || !trusted(&meta, owner) {
@@ -220,9 +261,8 @@ pub fn read_seal(path: &Path, owner: u32, back_on: Option<&Path>) -> Option<Opti
     if !dir.is_dir() || !trusted(&dir, owner) {
         return None;
     }
-    let sealed: SystemTime = meta.modified().ok()?;
-    if let Some(on) = back_on.and_then(|p| std::fs::metadata(p).ok()?.modified().ok())
-        && on >= sealed
+    if let Some(on) = back_on.and_then(|p| std::fs::symlink_metadata(p).ok())
+        && changed(&on) > changed(&meta)
     {
         return None;
     }
@@ -337,6 +377,51 @@ mod tests {
     }
 
     #[test]
+    fn extreme_settings_and_endless_snoozes_do_not_switch_nudges_off() {
+        let never_away = Nudges {
+            chair_minutes: 90,
+            snooze_minutes: 30,
+            break_minutes: 0,
+        };
+        let n = check(
+            at("2026-09-24T18:00:00Z"),
+            TODAY,
+            &sitting(95),
+            &Answers::default(),
+            None,
+            &never_away,
+            None,
+            false,
+            None,
+        );
+        assert!(n.is_some(), "a zero-minute break is not honored");
+        let forever = Nudges {
+            chair_minutes: u32::MAX,
+            ..Nudges::default()
+        };
+        let n = check(
+            at("2026-09-24T18:00:00Z"),
+            TODAY,
+            &sitting(241),
+            &Answers::default(),
+            None,
+            &forever,
+            None,
+            false,
+            None,
+        );
+        assert!(n.is_some(), "a chair time of years is not honored");
+        let endless = Answers {
+            snoozed_until: Some(at("2099-01-01T00:00:00Z")),
+            skipped: None,
+        };
+        assert!(
+            nudge(&sitting(120), &endless, None, false).is_some(),
+            "not a real snooze"
+        );
+    }
+
+    #[test]
     fn someone_already_away_is_not_nudged() {
         let away = Activity {
             stretch_start: at("2026-09-24T15:00:00Z"),
@@ -421,19 +506,51 @@ mod tests {
         }
 
         #[test]
-        fn turning_nudges_back_on_needs_no_password() {
-            let (dir, file) = sealed("until=on-request\n");
+        fn turning_nudges_back_on_needs_no_password_and_cannot_be_undone() {
+            let dir = tempfile::tempdir().unwrap();
+            let sub = dir.path().join("den");
+            std::fs::create_dir(&sub).unwrap();
+            std::fs::set_permissions(&sub, std::fs::Permissions::from_mode(0o755)).unwrap();
+            // As the root command does it: the "back on" file first, then
+            // the seal.
+            let on = sub.join("nudges-on-501");
+            std::fs::write(&on, "").unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            let file = sub.join("nudges-off-501");
+            std::fs::write(&file, "until=on-request\n").unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
             let owner = me(dir.path());
-            let on = dir.path().join("nudges-on");
+            assert_eq!(read_seal(&file, owner, Some(&on)), Some(None), "off");
+
             std::thread::sleep(std::time::Duration::from_millis(20));
             std::fs::write(&on, "").unwrap();
-            assert_eq!(read_seal(&file, owner, Some(&on)), None);
+            assert_eq!(read_seal(&file, owner, Some(&on)), None, "back on");
+
+            // Setting the file's time back does not revive the seal: its
+            // change time moves forward regardless.
+            let old = std::fs::FileTimes::new()
+                .set_modified(std::time::SystemTime::UNIX_EPOCH)
+                .set_accessed(std::time::SystemTime::UNIX_EPOCH);
+            std::fs::File::options()
+                .write(true)
+                .open(&on)
+                .unwrap()
+                .set_times(old)
+                .unwrap();
+            assert_eq!(read_seal(&file, owner, Some(&on)), None, "still on");
         }
 
         #[test]
         fn the_seal_command_writes_only_fixed_paths_and_a_date() {
             let cmd = seal_command(501, Some(jiff::civil::date(2026, 10, 1)));
             assert!(cmd.contains("nudges-off-501"), "{cmd}");
+            let on = cmd.find("touch").unwrap();
+            let seal = cmd.find("mv -f").unwrap();
+            assert!(on < seal, "the back-on file comes first: {cmd}");
+            assert!(
+                cmd.contains("chown 501 "),
+                "and belongs to the person: {cmd}"
+            );
             assert!(cmd.contains("'2026-10-01'"), "{cmd}");
             assert!(
                 !cmd.contains('"'),

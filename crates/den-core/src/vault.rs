@@ -448,6 +448,17 @@ fn collect(
             continue;
         }
         let path = entry.path();
+        // A symlink is followed only when it stays inside the vault: a
+        // synced vault can carry links to anywhere.
+        if entry.file_type().is_ok_and(|t| t.is_symlink()) {
+            let inside = std::fs::canonicalize(&path)
+                .ok()
+                .zip(std::fs::canonicalize(root).ok())
+                .is_some_and(|(real, real_root)| real.starts_with(real_root));
+            if !inside {
+                continue;
+            }
+        }
         let file_type = std::fs::metadata(&path).map(|m| m.file_type());
         let Ok(file_type) = file_type else { continue };
         if file_type.is_dir() {

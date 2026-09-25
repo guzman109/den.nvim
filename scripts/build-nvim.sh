@@ -25,4 +25,8 @@ rm -f lua/den_native.so bin/den bin/den-agent
 cp "$lib" lua/den_native.so
 mkdir -p bin
 cp "$dir/den" "$dir/den-agent" bin/
+if [ "$(uname -s)" = Darwin ]; then
+  # The hardened runtime, so nothing can be injected into den-agent.
+  codesign --force --options runtime --sign - bin/den bin/den-agent 2>/dev/null
+fi
 echo "built lua/den_native.so, bin/den and bin/den-agent"

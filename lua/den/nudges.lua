@@ -43,11 +43,6 @@ local function state_dir()
   return dir
 end
 
---- The file `:Den nudges on` touches. Newer than the seal means "on".
-local function back_on_path()
-  return state_dir() .. "/nudges-on"
-end
-
 local function answers_path()
   return state_dir() .. "/nudges.json"
 end
@@ -163,7 +158,6 @@ function M.check()
     activity = { stretch_start = iso(activity.stretch_start), last_active = iso(activity.last_active) },
     answers = { snoozed_until = answers.snoozed_until, skipped = answers.skipped },
     uid = vim.uv.getuid(),
-    back_on = back_on_path(),
   })
   current = n
   if n and not walking then
@@ -230,7 +224,7 @@ end
 -- Turning them off ----------------------------------------------------------
 
 local function status()
-  return native.call("nudges_state", vim.uv.getuid(), back_on_path()) or { off = false }
+  return native.call("nudges_state", vim.uv.getuid()) or { off = false }
 end
 
 local function ask(message, keep, go, on_go)
@@ -329,12 +323,18 @@ function M.off()
   end)
 end
 
---- `:Den nudges on`. No questions asked.
+--- `:Den nudges on`. No questions asked: it touches the file the root
+--- command left for exactly this.
 function M.on()
-  local f = io.open(back_on_path(), "w")
-  if f then
-    f:write(os.date("!%Y-%m-%dT%H:%M:%SZ") .. "\n")
-    f:close()
+  local s = status()
+  if not s.off then
+    vim.notify("Den: break reminders are already on")
+    return
+  end
+  local now = os.time()
+  if not vim.uv.fs_utime(s.back_on, now, now) then
+    vim.notify("Den: could not turn them back on (" .. s.back_on .. " is missing); :Den nudges off again, then on", vim.log.levels.WARN)
+    return
   end
   vim.notify("Den: break reminders are back on. Your legs thank you.")
   M.check()
