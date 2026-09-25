@@ -48,6 +48,10 @@ pub struct Focus {
     pub session_minutes: u32,
     pub daily_goal_minutes: u32,
     pub steps_goal: u32,
+    /// A JSON file with today's steps (`{"date", "steps", "as_of"}`), kept
+    /// up to date by something else, such as an iOS Shortcut saving to
+    /// iCloud Drive. See steps.rs.
+    pub steps_file: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -111,6 +115,7 @@ impl Default for Focus {
             session_minutes: 50,
             daily_goal_minutes: 240,
             steps_goal: 10_000,
+            steps_file: None,
         }
     }
 }
@@ -165,6 +170,12 @@ impl Config {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
             Err(e) => Err(Error::io(path, e)),
         }
+    }
+
+    /// Today's steps, if a steps file is set and current.
+    pub fn steps(&self, today: jiff::civil::Date) -> Option<crate::steps::Steps> {
+        let path = expand_home(self.focus.steps_file.as_deref()?);
+        crate::steps::read(&path, today)
     }
 
     pub fn vault_root(&self) -> PathBuf {

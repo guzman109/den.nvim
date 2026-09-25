@@ -1006,6 +1006,7 @@ fn nudge_check(lua: &Lua, input: LuaValue) -> LuaResult<LuaValue> {
             &e.config.nudges,
             sunset,
             walked,
+            e.config.steps(today),
         );
         out(lua, &nudge)
     })
@@ -1083,10 +1084,12 @@ fn focus(lua: &Lua, _: ()) -> LuaResult<LuaValue> {
             today: i64,
             today_goal: i64,
             steps: Option<u32>,
+            steps_as_of: Option<Timestamp>,
             steps_goal: u32,
             task: Option<String>,
         }
         let now = jiff::Zoned::now();
+        let steps = e.config.steps(now.date());
         let (start, end) = den_core::review::day_bounds(now.date(), &system_tz());
         let (session, task, today) = match e.log.as_ref() {
             Some(log) => {
@@ -1109,7 +1112,8 @@ fn focus(lua: &Lua, _: ()) -> LuaResult<LuaValue> {
                 session_goal: i64::from(e.config.focus.session_minutes) * 60,
                 today,
                 today_goal: i64::from(e.config.focus.daily_goal_minutes) * 60,
-                steps: None,
+                steps: steps.map(|s| s.steps),
+                steps_as_of: steps.and_then(|s| s.as_of),
                 steps_goal: e.config.focus.steps_goal,
                 task,
             },

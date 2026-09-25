@@ -104,7 +104,8 @@ local function info_lines(n)
     table.insert(lines, ("  sunset        %s"):format(when))
   end
   if n.steps then
-    table.insert(lines, ("  steps         %d"):format(n.steps))
+    local as_of = n.steps.as_of and util.from_iso(n.steps.as_of)
+    table.insert(lines, ("  steps         %d%s"):format(n.steps.steps, as_of and os.date(" (as of %H:%M)", as_of) or ""))
   end
   table.insert(lines, "")
   table.insert(lines, ("  w walk · z snooze %d min · q not today"):format(settings().snooze_minutes or 30))

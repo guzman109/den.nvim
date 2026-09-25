@@ -59,8 +59,8 @@ pub struct Nudge {
     pub chair_minutes: i64,
     pub sunset: Option<Timestamp>,
     pub minutes_to_sunset: Option<i64>,
-    /// Steps today, once there is a source for them.
-    pub steps: Option<u32>,
+    /// Steps today, when a steps file is set and current.
+    pub steps: Option<crate::steps::Steps>,
     pub message: String,
 }
 
@@ -123,6 +123,7 @@ pub fn check(
     settings: &Nudges,
     sunset: Option<Timestamp>,
     walked_today: bool,
+    steps: Option<crate::steps::Steps>,
 ) -> Option<Nudge> {
     match off {
         Some(None) => return None,
@@ -161,7 +162,7 @@ pub fn check(
         chair_minutes: chair,
         sunset,
         minutes_to_sunset: to_sunset,
-        steps: None,
+        steps,
         message,
     })
 }
@@ -271,6 +272,7 @@ mod tests {
             &settings(),
             sunset.map(at),
             walked,
+            None,
         )
     }
 
@@ -355,6 +357,7 @@ mod tests {
                 &settings(),
                 None,
                 false,
+                None,
             )
         };
         assert!(run(Some(Some(TODAY))).is_none());

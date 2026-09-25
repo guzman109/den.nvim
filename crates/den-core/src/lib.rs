@@ -26,6 +26,7 @@ pub mod parse;
 pub mod query;
 pub mod review;
 pub mod slug;
+pub mod steps;
 pub mod sun;
 pub mod sync;
 pub mod text;

@@ -26,7 +26,14 @@ function M.lines(f)
     { f.task and ("◐ " .. f.task) or "no timer running", f.task and "DenTimer" or "DenMuted" },
     { ("session  %s / %s"):format(util.clock(f.session), util.duration(f.session_goal)), "DenTimer" },
     { ("today    %s / %s"):format(util.duration(f.today), util.duration(f.today_goal)), "DenChart" },
-    { f.steps and ("steps    %d / %d"):format(f.steps, f.steps_goal) or "steps    no data yet", f.steps and "DenDone" or "DenMuted" },
+    {
+      f.steps and ("steps    %d / %d%s"):format(
+        f.steps,
+        f.steps_goal,
+        f.steps_as_of and os.date(" · %H:%M", util.from_iso(f.steps_as_of)) or ""
+      ) or "steps    no data yet",
+      f.steps and "DenDone" or "DenMuted",
+    },
   }
   local kitty = require("den.kitty")
   local rings = kitty.lines("focus", "rings", {

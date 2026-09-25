@@ -223,7 +223,19 @@ focus: { session_minutes: 50, daily_goal_minutes: 240, steps_goal: 10000 }
 sync: { enabled: true, commit_after_seconds: 30, every_minutes: 5 }
 ```
 
-`location` gives sunset nudges. Turning break nudges off is not a setting:
+`location` gives sunset nudges. `focus.steps_file` shows today's steps in
+the nudge window and the focus rings. Macs can't read iPhone Health data, so
+the easiest source is an iOS Shortcut (an automation that runs a few times a
+day) with the actions *Find Health Samples* (Steps, today) → *Calculate
+Statistics* (Sum) → *Text* `{"date":"<Current Date, yyyy-MM-dd>","steps":<Sum>}`
+→ *Save File* to iCloud Drive as `Den/steps.json`, overwriting. Then:
+
+```yaml
+focus: { steps_file: "~/Library/Mobile Documents/com~apple~CloudDocs/Den/steps.json" }
+```
+
+Den uses the file only when it is about today, and shows when it was last
+written (the phone updates it only while unlocked). Turning break nudges off is not a setting:
 run `:Den nudges off`, answer three pleading questions, and confirm with your
 own password in the operating system's dialog. `:Den nudges on` brings them
 back with no questions.

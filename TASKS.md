@@ -122,7 +122,7 @@ finished. Milestones and exit criteria are in [PLAN.md](PLAN.md).
 
 ## Spikes
 
-- [ ] Does iPhone step data reach the Mac through HealthKit? #spike
+- [x] Does iPhone step data reach the Mac through HealthKit? No: a steps file from an iOS Shortcut instead #spike @done(2026-09-24)
 - [x] kitty image placement: snacks.nvim image module or Den's own code #spike @done(2026-09-24)
-- [ ] Dioxus native maturity before M8 #spike
+- [x] Dioxus native maturity before M8: not ready for an editor; webview renderer + CodeMirror 6 recommended (owner decides) #spike @done(2026-09-24)
 - [ ] Which statusline plugins to support first #spike
