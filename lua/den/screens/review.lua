@@ -67,7 +67,10 @@ local function render(ctx, width)
   end
   push(S.line())
   push(section("Finished · last 14 days", finished == 1 and "1 task" or (finished .. " tasks"), width))
-  local placed = kitty and kitty.place(lines, "closed", r.closed, 44, 5)
+  -- Charts grow with the window: a tab of their own gives them room.
+  local chart_cols = math.max(30, math.min(width - 8, 140))
+  local placed = kitty
+    and kitty.place(lines, "closed", r.closed, chart_cols, math.max(5, math.min(math.floor(chart_cols / 9), 12)))
   if not placed then
     for _, row in ipairs(charts.columns(counts, 4)) do
       push(S.add(S.line(), "    " .. spread(row), "DenChart"))
@@ -155,7 +158,8 @@ local function render(ctx, width)
     local left = b.points[#b.points] and b.points[#b.points].count or 0
     push(section("Burndown · " .. b.project.title, ("%d left · due %s"):format(left, util.short_date(b.due)), width))
     local days = (util.days_between(b.start, b.due) or 0) + 1
-    local shown = kitty and kitty.place(lines, "burndown", b, 60, 8)
+    local shown = kitty
+      and kitty.place(lines, "burndown", b, chart_cols, math.max(8, math.min(math.floor(chart_cols / 6), 20)))
     if not shown then
       local top = b.points[1] and b.points[1].count or 0
       for _, p in ipairs(b.points) do

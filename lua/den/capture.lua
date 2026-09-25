@@ -47,7 +47,7 @@ function M.open(opts)
 
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].bufhidden = "wipe"
-  local width = math.min(72, vim.o.columns - 4)
+  local width = math.max(60, math.min(math.floor(vim.o.columns * 0.6), 110, vim.o.columns - 4))
   local function title()
     return " capture → " .. (title_of[target] or target) .. " "
   end

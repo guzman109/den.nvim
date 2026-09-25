@@ -75,6 +75,34 @@ T.test("the focus window shows the session and today without taking the cursor",
   native.call("timer_stop")
 end)
 
+T.test("the focus rings open full size in a tab of their own", function()
+  local tabs = #vim.api.nvim_list_tabpages()
+  vim.cmd("Den focus tab")
+  T.eq(#vim.api.nvim_list_tabpages(), tabs + 1)
+  T.eq(vim.api.nvim_buf_get_name(0), "den://focus")
+  local text = table.concat(T.lines(), "\n")
+  T.contains(text, "session  ")
+  T.contains(text, "today    ")
+  -- Centred: the words do not start at the left edge.
+  for _, line in ipairs(T.lines()) do
+    if line:find("session", 1, true) then
+      T.ok(line:match("^%s+session"), line)
+    end
+  end
+  T.ok(require("den.focus").tab_open())
+  vim.cmd("normal q")
+  T.eq(#vim.api.nvim_list_tabpages(), tabs)
+  T.ok(not require("den.focus").tab_open())
+end)
+
+T.test(":tab Den review opens the review in a new tab", function()
+  local tabs = #vim.api.nvim_list_tabpages()
+  vim.cmd("tab Den review all")
+  T.eq(#vim.api.nvim_list_tabpages(), tabs + 1)
+  T.eq(vim.api.nvim_buf_get_name(0), "den://review")
+  vim.cmd("tabclose")
+end)
+
 T.test("a journal page shows the day's facts without changing its text", function()
   vim.cmd.edit(T.vault .. "/daily/2026-09-24.md")
   local before = table.concat(T.lines(), "\n")

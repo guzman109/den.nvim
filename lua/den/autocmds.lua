@@ -43,6 +43,7 @@ function M.setup(opts)
     group = group,
     callback = function()
       screen.render_all()
+      require("den.focus").resized()
     end,
   })
 

@@ -91,10 +91,18 @@ M.subcommands = {
     end
   end),
   review = needs_vault(function(args)
-    require("den.screens.review").open({ all = args[1] == "all" })
+    if vim.tbl_contains(args, "tab") and not args.tab then
+      vim.cmd("tabnew")
+    end
+    require("den.screens.review").open({ all = vim.tbl_contains(args, "all") })
   end),
-  focus = needs_vault(function()
-    require("den.focus").toggle()
+  focus = needs_vault(function(args)
+    local focus = require("den.focus")
+    if args[1] == "tab" or args.tab then
+      focus.open_tab()
+    else
+      focus.toggle()
+    end
   end),
   ["break"] = needs_vault(function()
     require("den.nudges").enter()
@@ -160,6 +168,10 @@ M.subcommands = {
 }
 
 --- Runs `:Den [sub] [args…]`. With no subcommand, opens Tasks.
+--- Subcommands that open a screen in the current window; `:tab Den …`
+--- gives them a new tab first.
+local SCREENS = { tasks = true, inbox = true, review = true, today = true, sync = true }
+
 function M.run(cmd)
   local args = vim.deepcopy(cmd.fargs)
   local sub = table.remove(args, 1) or "tasks"
@@ -167,6 +179,13 @@ function M.run(cmd)
   if not fn then
     vim.notify("Den: no subcommand " .. sub, vim.log.levels.WARN)
     return
+  end
+  -- `:tab Den focus`, `:tab Den review` and so on.
+  if cmd.smods and cmd.smods.tab and cmd.smods.tab >= 0 then
+    args.tab = true
+    if SCREENS[sub] then
+      vim.cmd("tabnew")
+    end
   end
   fn(args)
 end
@@ -185,10 +204,20 @@ function M.complete(arglead, cmdline)
       return vim.startswith(n, arglead)
     end, { "on", "off" })
   end
-  if words[2] == "tasks" or words[2] == "review" then
+  if words[2] == "tasks" then
     return vim.tbl_filter(function(n)
       return vim.startswith(n, arglead)
     end, { "all" })
+  end
+  if words[2] == "review" then
+    return vim.tbl_filter(function(n)
+      return vim.startswith(n, arglead)
+    end, { "all", "tab" })
+  end
+  if words[2] == "focus" then
+    return vim.tbl_filter(function(n)
+      return vim.startswith(n, arglead)
+    end, { "tab" })
   end
   if words[2] == "project" then
     return { "new" }
