@@ -456,9 +456,13 @@ fn load_time_for_five_thousand_notes() {
     std::fs::create_dir_all(dir.path().join("notes")).unwrap();
     std::fs::create_dir_all(dir.path().join("projects")).unwrap();
     for i in 0..100 {
-        let mut text = format!("---\nstatus: active\n---\n# Project {i}\n\n## Inbox\n\n## Next actions\n\n");
+        let mut text =
+            format!("---\nstatus: active\n---\n# Project {i}\n\n## Inbox\n\n## Next actions\n\n");
         for t in 0..20 {
-            text.push_str(&format!("- [ ] Task {t} for project {i} #tag{t} @due(2026-10-{:02})\n", t % 28 + 1));
+            text.push_str(&format!(
+                "- [ ] Task {t} for project {i} #tag{t} @due(2026-10-{:02})\n",
+                t % 28 + 1
+            ));
         }
         std::fs::write(dir.path().join(format!("projects/p{i}.md")), text).unwrap();
     }
@@ -466,7 +470,10 @@ fn load_time_for_five_thousand_notes() {
     for i in 0..4900 {
         std::fs::write(
             dir.path().join(format!("notes/n{i}.md")),
-            format!("---\nproject: p{}\n---\n# Note {i}\n\n{body}- [ ] A task\n", i % 100),
+            format!(
+                "---\nproject: p{}\n---\n# Note {i}\n\n{body}- [ ] A task\n",
+                i % 100
+            ),
         )
         .unwrap();
     }

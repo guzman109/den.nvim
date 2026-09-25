@@ -44,17 +44,19 @@ finished. Milestones and exit criteria are in [PLAN.md](PLAN.md).
 
 ## M3 · Neovim plugin
 
-- [ ] Engine as a Lua module (`require("den_core")`); install builds or downloads the binary like blink.cmp #nvim
-- [ ] `:Den <sub>` commands and a Lua API #nvim
-- [ ] Background thread + pipe wake-up for vault loading #nvim
-- [ ] Tasks screen `den://tasks`: this project ↔ all projects; `s p x - a o /` #nvim
-- [ ] Inbox screen `den://inbox`: `m > - e o`, skim picker for `m` #nvim
-- [ ] Capture float: project from the folder, `tab` to change #nvim
-- [ ] New-folder prompt, asked once per folder: create / link / ignore #nvim
-- [ ] Linked notes line under a project title; `:Den notes` #nvim
-- [ ] markview: confirm `[/]` and `[-]` render; draw `@due` as "28 Sep · in 4 days" #nvim
-- [ ] fzf-lua sources for projects, notes and tasks; live grep limited to the vault #nvim
-- [ ] `Den*` highlight groups linked to standard groups #nvim
+- [ ] Prebuilt engine downloads for people without cargo (needs release hosting) #nvim
+
+- [x] Engine as a Lua module (`require("den_native")`); `:Den build` / `scripts/build-nvim.sh` builds it #nvim @done(2026-09-24)
+- [x] `:Den <sub>` commands and a Lua API #nvim @done(2026-09-24)
+- [x] Background thread + pipe wake-up for vault loading #nvim @done(2026-09-24)
+- [x] Tasks screen `den://tasks`: this project ↔ all projects (`<Tab>`); `s p x - a e m o f g?` #nvim @done(2026-09-24)
+- [x] Inbox screen `den://inbox`: `m > - e o`, skim picker for `m` #nvim @done(2026-09-24)
+- [x] Capture float: project from the folder, `tab` to change #nvim @done(2026-09-24)
+- [x] New-folder prompt, asked once per folder: create / link / ignore #nvim @done(2026-09-24)
+- [x] Linked notes line under a project title; `:Den notes` #nvim @done(2026-09-24)
+- [x] markview: `[/]` and `[-]` render by default; `@due` coloured with "in 4 days" after it #nvim @done(2026-09-24)
+- [x] fzf-lua sources for projects, notes and tasks; live grep limited to the vault #nvim @done(2026-09-24)
+- [x] `Den*` highlight groups linked to standard groups #nvim @done(2026-09-24)
 
 ## M4 · Timer and `den`
 

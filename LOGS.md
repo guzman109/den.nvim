@@ -14,6 +14,43 @@ next. A change to [PLAN.md](PLAN.md) always gets an entry here.
 
 ---
 
+## 2026-09-24 · Build: M3, the Neovim plugin
+
+**Did**
+- den-nvim: the engine as `require("den_native")`. One engine per session
+  behind a lock; the vault loads and is watched on background threads that
+  wake Lua through a pipe and never touch Lua themselves.
+- Lua: setup, buffer-aware applying of plans, a shared screen renderer, the
+  Tasks and Inbox screens, the capture box, the one-time question about
+  unknown code folders, decorations (due dates, linked notes), pickers
+  (fzf-lua, else vim.ui.select), highlights, `:Den` commands,
+  `:checkhealth den`, the journal page.
+- 21 headless Neovim tests (`scripts/test-nvim.sh`), each test file on a
+  fresh copy of the fixture vault.
+- Rendered the screens with the owner's real config (ember + markview) and
+  looked at them.
+
+**Decided**
+- A change to a file open with unsaved edits goes into the buffer and stays
+  unsaved; Den never saves someone's edits for them. A file open without
+  edits is changed and written at once.
+- Filtering is `f` and help is `g?`, so `/` and `?` stay Neovim's search.
+- Columns size to their contents; titles in project groups use the empty
+  project column.
+- Project names on screens are quiet (`Comment`), not `Directory`, which is
+  bold coral in ember.
+- Den's decorations sit above markview's highlights (priority 5000).
+- mlua's generated entry point needs `unsafe`; den-nvim relaxes the lint to
+  `deny` and allows it on that one function.
+
+**Found and fixed**
+- Trimming trailing spaces left highlight ranges past the end of a line.
+- The Tasks view scanned every file per task (see the M0–M2 entry).
+
+**Next:** M4 — timer in the statusline, the `den` command, starship.
+
+---
+
 ## 2026-09-24 · Build: M0–M2, the engine
 
 **Did**

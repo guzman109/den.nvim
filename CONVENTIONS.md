@@ -29,7 +29,8 @@ gets in the way, change the rule here first, with a line in
 - Nothing may panic across the mlua boundary: every function exported to Lua
   returns a `Result` and turns errors into Lua errors.
 - No `unsafe`, except in den-agent's memory locking, where each block
-  explains what it relies on.
+  explains what it relies on, and the Lua module's entry point that mlua
+  generates (den-nvim relaxes the lint to `deny` and allows it there only).
 - Keep dependencies to the list in [PLAN.md](PLAN.md). Adding one needs a line
   in LOGS.md saying why.
 
@@ -72,8 +73,8 @@ gets in the way, change the rule here first, with a line in
 
 - Everything is under `:Den <subcommand>` and `require("den")`.
 - Den's own screens (`den://…`) may use single-letter keys, but never shadow
-  built-in keys people use in lists: `n`, `N`, `gn`, `/`, `?` stay Neovim's
-  (`/` may filter only where noted in PLAN.md).
+  built-in keys people use in lists: `n`, `N`, `gn`, `/`, `?` stay Neovim's.
+  Filtering is `f` and help is `g?`.
 - Den adds no default key mappings to note buffers. It only adds virtual text
   (due dates, linked notes, the day's facts).
 - Highlight groups are named `Den*` and linked to standard groups, so any

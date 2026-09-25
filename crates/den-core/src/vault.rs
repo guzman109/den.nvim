@@ -228,6 +228,25 @@ impl Vault {
         }
     }
 
+    /// Like [`Vault::reload`], but says whether anything changed: `false` when
+    /// the file on disk still holds exactly what Den already has, as after
+    /// Den's own writes.
+    pub fn reload_if_changed(&mut self, path: &str) -> bool {
+        let before = self.docs.get(path).map(|d| (d.text.clone(), d.overlaid));
+        if let Some((_, true)) = before {
+            return false;
+        }
+        let on_disk = std::fs::read(self.abs(path)).ok();
+        match (&before, &on_disk) {
+            (Some((text, _)), Some(bytes)) if text.as_bytes() == bytes.as_slice() => false,
+            (None, None) => false,
+            _ => {
+                self.reload(path);
+                true
+            }
+        }
+    }
+
     fn load(&mut self, path: String, kind: Kind, locked: bool) {
         if locked {
             self.docs.insert(

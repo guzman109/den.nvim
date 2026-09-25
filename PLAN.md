@@ -165,8 +165,8 @@ to a pipe Neovim is watching; Lua wakes up and collects it.
 ### Tasks
 - States change through Den so side effects happen: `s` start (marks `[/]`,
   starts the timer), `p` pause, `x` done (adds `@done`), `-` drop, reopen.
-- The Tasks screen shows this project, or all projects with one key. `a` adds,
-  `o` opens the line in its file, `/` filters.
+- The Tasks screen shows this project, or all projects with `<Tab>`. `a` adds,
+  `o` opens the line in its file, `f` filters, `g?` lists every key.
 - Anything you can type — tags, due dates, reordering, renaming — you just
   type. Den adds actions only where typing would be awkward.
 

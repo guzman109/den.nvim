@@ -1,0 +1,79 @@
+-- Den: projects, notes and next actions in a Markdown vault.
+--
+--   require("den").setup({
+--     vault = "~/Notes/den",      -- optional; else ~/.config/den/config.yaml
+--     ask_about_folders = true,   -- ask once about unknown code folders
+--   })
+--
+-- Den adds no key mappings. Everything is under :Den, and the Lua API below
+-- is there to map as you like.
+
+local M = {}
+
+M.options = {}
+local started = false
+
+function M.setup(opts)
+  M.options = vim.tbl_extend("force", M.options, opts or {})
+  require("den.highlights").setup()
+  local ok, err = pcall(require("den.state").setup, {
+    vault = M.options.vault,
+    machine = M.options.machine,
+    config = M.options.config,
+  })
+  if not ok then
+    vim.notify("Den: " .. tostring(err):gsub("^runtime error: ", ""), vim.log.levels.ERROR)
+    return false
+  end
+  started = true
+  require("den.autocmds").setup(M.options)
+  return true
+end
+
+--- Starts Den with the options given so far, if it hasn't started.
+function M.ensure()
+  if started then
+    return true
+  end
+  return M.setup(M.options)
+end
+
+--- Opens the Tasks screen. `{ all = true }` for every project.
+function M.tasks(opts)
+  if M.ensure() then
+    require("den.commands").subcommands.tasks(opts and opts.all and { "all" } or {})
+  end
+end
+
+function M.inbox()
+  if M.ensure() then
+    require("den.commands").subcommands.inbox({})
+  end
+end
+
+--- Opens the capture box, or saves `text` straight away.
+function M.capture(text)
+  if M.ensure() then
+    require("den.commands").subcommands.capture(text and { text } or {})
+  end
+end
+
+function M.today()
+  if M.ensure() then
+    require("den.commands").subcommands.today({})
+  end
+end
+
+function M.find()
+  if M.ensure() then
+    require("den.commands").subcommands.find({})
+  end
+end
+
+function M.search()
+  if M.ensure() then
+    require("den.commands").subcommands.search({})
+  end
+end
+
+return M

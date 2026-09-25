@@ -29,13 +29,10 @@ pub struct Watch {
 
 /// Watches `root` and calls `on_change` from the watcher's thread.
 pub fn watch(root: &Path, on_change: impl Fn(Changed) + Send + 'static) -> Result<Watch> {
-    let roots: Vec<PathBuf> = [
-        std::fs::canonicalize(root).ok(),
-        Some(root.to_path_buf()),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
+    let roots: Vec<PathBuf> = [std::fs::canonicalize(root).ok(), Some(root.to_path_buf())]
+        .into_iter()
+        .flatten()
+        .collect();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
         let Ok(event) = event else { return };
         if matches!(event.kind, EventKind::Access(_)) {

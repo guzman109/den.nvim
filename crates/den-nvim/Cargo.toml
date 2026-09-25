@@ -12,6 +12,19 @@ crate-type = ["cdylib"]
 
 [dependencies]
 den-core.workspace = true
+jiff.workspace = true
+mlua = { version = "0.12", features = ["module", "luajit", "serialize"] }
+serde.workspace = true
+serde_json.workspace = true
 
-[lints]
-workspace = true
+# The workspace forbids `unsafe`; this crate only denies it, because mlua's
+# module macro generates the C entry point Neovim calls, and that is
+# necessarily `unsafe extern "C"`. It is allowed on that one function.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+dbg_macro = "warn"
+todo = "warn"
