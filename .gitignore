@@ -14,3 +14,7 @@
 .den/
 
 .DS_Store
+
+# Personal working context for whoever builds Den on this machine. Never
+# committed: it describes the owner's setup and habits.
+/MEMORY.md
