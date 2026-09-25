@@ -39,11 +39,12 @@ local function render(ctx, width)
   end
   local total = 0
   local list = {}
+  ctx.settled = ctx.settled or {}
   for _, path in ipairs(files()) do
-    local info = native.call("conflicts", path)
+    local info = not ctx.settled[path] and native.call("conflicts", path)
     if info then
       table.insert(list, info)
-      total = total + #info.hunks
+      total = total + (info.locked and 1 or #info.hunks)
     end
   end
   ctx.total = total
@@ -54,6 +55,13 @@ local function render(ctx, width)
   end
   for _, info in ipairs(list) do
     local other = info.other_name and ("other machine (" .. info.other_name .. ")") or "other machine"
+    if info.locked then
+      local item = { key = info.path, path = info.path, locked = true }
+      push(S.line())
+      push(S.add(S.add(S.line(), "  "), info.path, "DenGroup"), item)
+      push(S.add(S.line(), "    A locked note both machines changed in the same places.", "DenMuted"), item)
+      push(S.add(S.line(), "    m keeps this machine's version, t keeps the " .. other .. "'s.", "DenMuted"), item)
+    end
     for index, hunk in ipairs(info.hunks) do
       local item = { key = info.path .. "\0" .. index, path = info.path, index = index, count = #info.hunks, hunk = hunk }
       push(S.line())
@@ -86,6 +94,23 @@ local function settle(choice)
     if not item or not item.path then
       return
     end
+    if item.locked then
+      if choice ~= "mine" and choice ~= "other" then
+        vim.notify("Den: a locked note can only be kept whole: m mine, t theirs", vim.log.levels.WARN)
+        return
+      end
+      local _, why = native.call("take_side", item.path, choice)
+      if why then
+        vim.notify("Den: " .. why, vim.log.levels.ERROR)
+        return
+      end
+      ctx.settled[item.path] = true
+      S.render(NAME)
+      if (ctx.total or 0) == 0 then
+        require("den.sync").run({ resume = true })
+      end
+      return
+    end
     if choice == "combine" and not item.hunk.combined then
       vim.notify("Den: these edits overlap; pick one side, keep both, or edit by hand", vim.log.levels.WARN)
       return
@@ -114,7 +139,9 @@ keys = {
   b = { settle("both"), "keep both, the other machine's first" },
   e = {
     function(item)
-      if item and item.path then
+      if item and item.locked then
+        vim.notify("Den: a locked note has no lines to edit here; keep one version with m or t", vim.log.levels.WARN)
+      elseif item and item.path then
         vim.cmd.edit(vim.fn.fnameescape(native.call("abs", item.path)))
         pcall(vim.api.nvim_win_set_cursor, 0, { item.hunk.start + 1, 0 })
       end

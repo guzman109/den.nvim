@@ -34,6 +34,7 @@ function M.setup(opts)
   require("den.sync").setup()
   require("den.journal").setup()
   require("den.nudges").setup()
+  require("den.locked").setup()
   return true
 end
 

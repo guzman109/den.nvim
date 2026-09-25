@@ -29,6 +29,7 @@ fn env() -> Env {
     Env {
         prompt: Prompt::Never,
         extra: isolated(),
+        den: None,
     }
 }
 
@@ -273,6 +274,37 @@ fn continuing_before_the_markers_are_gone_keeps_waiting() {
         sync::continue_after_conflict(&w.b, "b", &env()),
         Outcome::Conflict { .. }
     ));
+}
+
+#[test]
+fn a_locked_note_in_conflict_waits_for_an_explicit_choice() {
+    let w = world();
+    std::fs::write(w.a.join("notes/private.md.age"), "line one\nline two\n").unwrap();
+    sync::run(&w.a, "a", &env());
+    sync::run(&w.b, "b", &env());
+    edit(&w.a, "notes/private.md.age", "line one", "from a");
+    sync::run(&w.a, "a", &env());
+    edit(&w.b, "notes/private.md.age", "line one", "from b");
+    assert_eq!(
+        sync::run(&w.b, "b", &env()),
+        Outcome::Conflict {
+            files: vec!["notes/private.md.age".to_string()]
+        }
+    );
+    // Continuing without a choice must not quietly keep either side.
+    std::fs::write(w.b.join("notes/private.md.age"), "from b\nline two\n").unwrap();
+    assert!(matches!(
+        sync::continue_after_conflict(&w.b, "b", &env()),
+        Outcome::Conflict { .. }
+    ));
+    sync::take_side(&w.b, "notes/private.md.age", sync::Side::Mine, &env()).unwrap();
+    assert!(matches!(
+        sync::continue_after_conflict(&w.b, "b", &env()),
+        Outcome::Synced { pushed: true, .. }
+    ));
+    assert_eq!(read(&w.b, "notes/private.md.age"), "from b\nline two\n");
+    sync::run(&w.a, "a", &env());
+    assert_eq!(read(&w.a, "notes/private.md.age"), "from b\nline two\n");
 }
 
 #[test]

@@ -109,6 +109,45 @@ M.subcommands = {
       vim.notify("Den: break reminders are " .. nudges.describe())
     end
   end),
+  lock = needs_vault(function(args)
+    local locked = require("den.locked")
+    local what = args[1]
+    if not what then
+      locked.forget()
+    elseif what == "note" then
+      locked.lock_note()
+    elseif what == "setup" then
+      locked.setup_keys()
+    elseif what == "password" then
+      locked.change_password()
+    elseif what == "touch-id" then
+      locked.enable_touch_id()
+    elseif what == "status" then
+      local s, why = locked.status()
+      if not s then
+        vim.notify("Den: " .. tostring(why), vim.log.levels.WARN)
+      elseif not s.set_up then
+        vim.notify("Den: locking is not set up (:Den lock setup)")
+      else
+        vim.notify(("Den: vault %s · unlocks with %s%s"):format(
+          s.unlocked and "unlocked" or "locked",
+          table.concat(s.methods, ", "),
+          s.strict and " · strict" or ""
+        ))
+      end
+    else
+      vim.notify("Den: :Den lock [note|setup|password|touch-id|status]", vim.log.levels.WARN)
+    end
+  end),
+  unlock = needs_vault(function(args)
+    local locked = require("den.locked")
+    if args[1] == "note" then
+      locked.unlock_note()
+    else
+      local method = ({ recovery = "recovery", yubikey = "yubikey", ["touch-id"] = "touch_id", password = "password" })[args[1] or ""]
+      locked.unlock(nil, method)
+    end
+  end),
   sync = needs_vault(function(args)
     require("den.sync").command(args)
   end),
@@ -159,6 +198,16 @@ function M.complete(arglead, cmdline)
   end
   if words[2] == "build" then
     return { "source" }
+  end
+  if words[2] == "lock" then
+    return vim.tbl_filter(function(n)
+      return vim.startswith(n, arglead)
+    end, { "note", "setup", "password", "touch-id", "status" })
+  end
+  if words[2] == "unlock" then
+    return vim.tbl_filter(function(n)
+      return vim.startswith(n, arglead)
+    end, { "note", "password", "recovery", "yubikey", "touch-id" })
   end
   return {}
 end

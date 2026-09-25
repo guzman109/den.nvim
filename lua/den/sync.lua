@@ -66,7 +66,7 @@ function M.background(opts)
     return false
   end
   waiting_for_save = false
-  return native.call("sync_run", { if_waiting = opts and opts.if_waiting or false }) == true
+  return native.call("sync_run", { if_waiting = opts and opts.if_waiting or false, den = M.program() }) == true
 end
 
 --- `:Den sync`: may ask for a passphrase, says what happened.
@@ -75,6 +75,7 @@ function M.run(opts)
   local program = M.program()
   local started, err = native.call("sync_run", {
     askpass = program,
+    den = program,
     server = program and vim.v.servername or nil,
     resume = opts.resume or false,
   })

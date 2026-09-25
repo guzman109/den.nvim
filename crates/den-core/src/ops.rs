@@ -21,12 +21,37 @@ use crate::slug::slug;
 use crate::text::TextBuf;
 use crate::vault::{Doc, Kind, Vault, classify, contract_home};
 
-/// One file's text before and after an edit. `before: None` creates the file.
+/// One file's text before and after an edit. `before: None` creates the
+/// file; `delete` removes it (it must still hold `before`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Change {
     pub path: String,
     pub before: Option<String>,
     pub after: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub delete: bool,
+}
+
+impl Change {
+    /// Writes `after` over `before` (or creates the file).
+    pub fn write(path: impl Into<String>, before: Option<String>, after: String) -> Change {
+        Change {
+            path: path.into(),
+            before,
+            after,
+            delete: false,
+        }
+    }
+
+    /// Removes a file that still holds `before`.
+    pub fn remove(path: impl Into<String>, before: String) -> Change {
+        Change {
+            path: path.into(),
+            before: Some(before),
+            after: String::new(),
+            delete: true,
+        }
+    }
 }
 
 /// A task as the caller last saw it.
@@ -134,6 +159,7 @@ impl Vault {
                         path: GENERAL_INBOX.to_string(),
                         before: None,
                         after: format!("# Inbox\n\n{line}\n"),
+                        delete: false,
                     }]),
                 }
             }
@@ -212,11 +238,7 @@ impl Vault {
         text.push_str(&format!(
             "status: active\ncreated: {today}\n---\n# {title}\n\n## Inbox\n\n## Next actions\n"
         ));
-        Ok(vec![Change {
-            path,
-            before: None,
-            after: text,
-        }])
+        Ok(vec![Change::write(path, None, text)])
     }
 
     /// Set or remove one frontmatter field.
@@ -255,11 +277,7 @@ impl Vault {
             text.push_str(&format!("project: {name}\n"));
         }
         text.push_str(&format!("created: {today}\n---\n# {title}\n\n"));
-        Ok(vec![Change {
-            path,
-            before: None,
-            after: text,
-        }])
+        Ok(vec![Change::write(path, None, text)])
     }
 
     /// The journal page for `date`, from `templates/daily.md`. Empty when the
@@ -276,11 +294,7 @@ impl Vault {
             .replace("{{date}}", &date.to_string())
             .replace("{{title}}", &long_date(date))
             .replace("{{weekday}}", weekday(date));
-        Ok(vec![Change {
-            path,
-            before: None,
-            after: text,
-        }])
+        Ok(vec![Change::write(path, None, text)])
     }
 
     fn project_doc(&self, name: &str) -> Result<&Doc> {
@@ -347,6 +361,7 @@ fn change(doc: &Doc, buf: &TextBuf) -> Change {
         path: doc.path.clone(),
         before: Some(doc.text.clone()),
         after: buf.render(),
+        delete: false,
     }
 }
 

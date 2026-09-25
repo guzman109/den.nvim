@@ -37,6 +37,10 @@ pub enum Prompt {
 #[derive(Debug, Clone, Default)]
 pub struct Env {
     pub prompt: Prompt,
+    /// The `den` program, for git's locked-note diff and merge helpers.
+    /// When set and the vault uses locking, sync makes sure this clone's
+    /// git knows about them.
+    pub den: Option<PathBuf>,
     /// Extra environment for every git run (the editor's address for the
     /// askpass; tests use it to isolate git from the machine's own config).
     pub extra: Vec<(String, String)>,
@@ -380,6 +384,14 @@ pub fn run(root: &Path, machine: &str, env: &Env) -> Outcome {
     let Some(_lock) = Lock::take(root) else {
         return Outcome::Busy;
     };
+    if let Some(den) = &env.den
+        && crate::lock::is_set_up(root)
+        && let Err(e) = crate::lock::git_setup(root, den)
+    {
+        return Outcome::Failed {
+            message: e.to_string(),
+        };
+    }
     if let Ok(snap) = snapshot(root)
         && (snap.rebasing || !snap.conflicts.is_empty())
     {
@@ -567,6 +579,11 @@ pub fn continue_after_conflict(root: &Path, machine: &str, env: &Env) -> Outcome
         }
     };
     for file in &snap.conflicts {
+        // A locked note shows no markers (it is encrypted), so only an
+        // explicit choice (`take_side`) settles it.
+        if file.ends_with(".md.age") {
+            continue;
+        }
         let text = std::fs::read_to_string(root.join(file)).unwrap_or_default();
         if crate::conflict::hunks(&text).is_empty() {
             let _ = git(root, env, &["add", "--", file]);
@@ -604,6 +621,42 @@ pub fn continue_after_conflict(root: &Path, machine: &str, env: &Env) -> Outcome
         }
     }
     run(root, machine, env)
+}
+
+/// Which version of a conflicted file to keep.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    /// This machine's.
+    Mine,
+    /// The other machine's.
+    Other,
+}
+
+/// Settles a conflicted file by keeping one machine's whole version, and
+/// marks it settled. For locked notes, whose conflicts cannot be shown line
+/// by line.
+pub fn take_side(root: &Path, path: &str, side: Side, env: &Env) -> Result<()> {
+    let rebasing = snapshot(root).is_ok_and(|s| s.rebasing);
+    // During a rebase, stage 2 is what the other machine pushed and stage 3
+    // this machine's replayed edit; in a merge it is the other way round.
+    let stage = match (side, rebasing) {
+        (Side::Mine, true) | (Side::Other, false) => 3,
+        (Side::Other, true) | (Side::Mine, false) => 2,
+    };
+    let out = git(root, env, &["show", &format!(":{stage}:{path}")])?;
+    if !out.status.success() {
+        return Err(Error::Invalid(format!("{path}: {}", stderr(&out))));
+    }
+    let target = root.join(path);
+    crate::write::write_atomically(&target, &out.stdout)?;
+    let added = git(root, env, &["add", "--", path])?;
+    if !added.status.success() {
+        return Err(Error::Invalid(format!(
+            "git add {path}: {}",
+            stderr(&added)
+        )));
+    }
+    Ok(())
 }
 
 /// Makes `root` a vault repository: the folders, the journal template, a

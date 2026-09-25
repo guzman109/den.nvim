@@ -83,10 +83,22 @@ impl Engine {
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Event {
     Loaded,
-    Changed { paths: Vec<String> },
+    Changed {
+        paths: Vec<String>,
+    },
     Log,
     Sync,
-    Error { message: String },
+    /// A background lock request finished (an unlock, the setup, a new
+    /// password). `text` carries the recovery key after setup, once.
+    Lock {
+        op: String,
+        ok: bool,
+        error: Option<String>,
+        text: Option<String>,
+    },
+    Error {
+        message: String,
+    },
 }
 
 static ENGINE: Mutex<Option<Engine>> = Mutex::new(None);
@@ -622,6 +634,8 @@ struct SyncOptions {
     askpass: Option<String>,
     /// Neovim's server address, for the askpass to reach.
     server: Option<String>,
+    /// The `den` program, for git's locked-note helpers.
+    den: Option<String>,
     /// Finish a sync stopped at a conflict.
     #[serde(default)]
     resume: bool,
@@ -650,6 +664,7 @@ fn sync_run(lua: &Lua, opts: Option<LuaValue>) -> LuaResult<bool> {
         return Ok(false);
     };
     let env = sync::Env {
+        den: opts.den.map(PathBuf::from),
         prompt: match opts.askpass {
             Some(program) => sync::Prompt::Askpass(PathBuf::from(program)),
             None => sync::Prompt::Never,
@@ -780,6 +795,8 @@ struct ConflictHunk {
 #[derive(Serialize)]
 struct ConflictFile {
     path: String,
+    /// A locked note: no lines to show, only a whole-file choice.
+    locked: bool,
     /// The other machine's name, from its sync commit, when known.
     other_name: Option<String>,
     hunks: Vec<ConflictHunk>,
@@ -837,11 +854,30 @@ fn conflicts(lua: &Lua, path: String) -> LuaResult<LuaValue> {
         out(
             lua,
             &ConflictFile {
+                locked: path.ends_with(".md.age"),
                 path,
                 other_name,
                 hunks,
             },
         )
+    })
+}
+
+/// Settles a conflicted file by keeping one machine's whole version:
+/// `side` is "mine" or "other".
+fn take_side(_: &Lua, (path, side): (String, String)) -> LuaResult<()> {
+    let side = match side.as_str() {
+        "mine" => sync::Side::Mine,
+        "other" => sync::Side::Other,
+        s => return Err(LuaError::runtime(format!("unknown side {s}"))),
+    };
+    let root = with(|e| Ok(e.root.clone()))?;
+    sync::take_side(&root, &path, side, &sync::Env::default()).map_err(err)?;
+    with(|e| {
+        if let Ok(v) = e.vault_mut() {
+            v.reload(&path);
+        }
+        Ok(())
     })
 }
 
@@ -865,14 +901,7 @@ fn plan_resolve(lua: &Lua, (path, choices): (String, Vec<String>)) -> LuaResult<
             .collect::<LuaResult<Vec<Choice>>>()?;
         let before = std::fs::read_to_string(e.root.join(&path)).map_err(LuaError::external)?;
         let after = conflict::resolve(&before, &choices).map_err(err)?;
-        out(
-            lua,
-            &vec![Change {
-                path,
-                before: Some(before),
-                after,
-            }],
-        )
+        out(lua, &vec![Change::write(path, Some(before), after)])
     })
 }
 
@@ -1088,6 +1117,203 @@ fn focus(lua: &Lua, _: ()) -> LuaResult<LuaValue> {
     })
 }
 
+// Locking -------------------------------------------------------------------
+
+/// One connection to den-agent for the whole Neovim session: in strict mode
+/// the agent ties the unlocked key to it.
+static AGENT: Mutex<Option<den_core::agent::Client>> = Mutex::new(None);
+static AGENT_PROGRAM: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// Where den-agent is (the plugin's bin/den-agent), for starting it.
+fn lock_agent_program(_: &Lua, program: String) -> LuaResult<()> {
+    if let Ok(mut p) = AGENT_PROGRAM.lock() {
+        *p = Some(PathBuf::from(program));
+    }
+    Ok(())
+}
+
+fn agent_call(
+    client: &mut Option<den_core::agent::Client>,
+    request: &den_core::agent::Request,
+) -> den_core::Result<den_core::agent::Response> {
+    for attempt in 0..2 {
+        if client.is_none() {
+            let program = AGENT_PROGRAM
+                .lock()
+                .ok()
+                .and_then(|p| p.clone())
+                .unwrap_or_else(|| PathBuf::from("den-agent"));
+            *client = Some(den_core::agent::Client::connect_or_start(&program)?);
+        }
+        let Some(c) = client.as_mut() else { continue };
+        match c.call(request) {
+            Ok(r) => return Ok(r),
+            // A dropped connection (the agent restarted): reconnect once.
+            Err(e) if attempt == 0 && e.to_string().starts_with("den-agent") => *client = None,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(den_core::Error::Lock("den-agent is not answering".into()))
+}
+
+/// A request from Lua: `{ op = "status" }` and so on; the vault is filled in.
+fn lock_request(lua: &Lua, value: LuaValue) -> LuaResult<den_core::agent::Request> {
+    let mut json: serde_json::Value = lua.from_value(value)?;
+    let root = with(|e| Ok(e.root.clone()))?;
+    if let Some(map) = json.as_object_mut() {
+        let op = map.get("op").and_then(|v| v.as_str()).unwrap_or("");
+        if !matches!(op, "lock" | "stop") {
+            map.insert(
+                "vault".to_string(),
+                serde_json::Value::String(root.display().to_string()),
+            );
+        }
+    }
+    serde_json::from_value(json).map_err(|e| LuaError::runtime(format!("lock request: {e}")))
+}
+
+#[derive(Serialize)]
+struct LockOut {
+    ok: bool,
+    error: Option<String>,
+    set_up: bool,
+    unlocked: bool,
+    methods: Vec<String>,
+    strict: bool,
+}
+
+/// A quick request, answered now. While a slow one (a finger, a password
+/// being checked) is under way, says so instead of waiting.
+fn lock_call(lua: &Lua, value: LuaValue) -> LuaResult<LuaValue> {
+    let request = lock_request(lua, value)?;
+    let mut client = AGENT
+        .try_lock()
+        .map_err(|_| LuaError::runtime("Den is waiting for you to unlock"))?;
+    let r = agent_call(&mut client, &request).map_err(err)?;
+    out(
+        lua,
+        &LockOut {
+            ok: r.ok,
+            error: r.error.clone(),
+            set_up: r.set_up,
+            unlocked: r.unlocked,
+            methods: r.methods.clone(),
+            strict: r.strict,
+        },
+    )
+}
+
+/// A slow request, on a background thread; an `Event::Lock` reports it.
+fn lock_call_async(lua: &Lua, value: LuaValue) -> LuaResult<()> {
+    let request = lock_request(lua, value)?;
+    let op = match &request {
+        den_core::agent::Request::Setup { .. } => "setup",
+        den_core::agent::Request::Unlock { .. } => "unlock",
+        den_core::agent::Request::SetPassword { .. } => "set_password",
+        den_core::agent::Request::AddYubikey { .. } => "add_yubikey",
+        den_core::agent::Request::EnableTouchId { .. } => "enable_touch_id",
+        _ => "other",
+    }
+    .to_string();
+    std::thread::spawn(move || {
+        let result = match AGENT.lock() {
+            Ok(mut client) => agent_call(&mut client, &request),
+            Err(_) => Err(den_core::Error::Lock("den-agent connection failed".into())),
+        };
+        drop(request);
+        let event = match result {
+            Ok(r) => Event::Lock {
+                op,
+                ok: true,
+                error: None,
+                text: r.text.clone(),
+            },
+            Err(e) => Event::Lock {
+                op,
+                ok: false,
+                error: Some(e.to_string()),
+                text: None,
+            },
+        };
+        if let Ok(mut guard) = ENGINE.lock()
+            && let Some(engine) = guard.as_mut()
+        {
+            engine.notify(event);
+        }
+    });
+    Ok(())
+}
+
+fn decrypt_file(path: &str) -> LuaResult<(String, zeroize::Zeroizing<String>)> {
+    let root = with(|e| Ok(e.root.clone()))?;
+    if !den_core::vault::classify(path).is_some_and(|(_, locked)| locked) {
+        return Err(LuaError::runtime(format!("{path} is not a locked note")));
+    }
+    let armored = std::fs::read_to_string(root.join(path)).map_err(LuaError::external)?;
+    let mut client = AGENT
+        .try_lock()
+        .map_err(|_| LuaError::runtime("Den is waiting for you to unlock"))?;
+    let r = agent_call(
+        &mut client,
+        &den_core::agent::Request::Decrypt {
+            vault: root,
+            text: armored.clone(),
+        },
+    )
+    .map_err(err)?;
+    Ok((
+        armored,
+        zeroize::Zeroizing::new(r.text.clone().unwrap_or_default()),
+    ))
+}
+
+/// A locked note's text and the armored file it came from.
+fn lock_read(lua: &Lua, path: String) -> LuaResult<LuaValue> {
+    let (armored, text) = decrypt_file(&path)?;
+    #[derive(Serialize)]
+    struct Out<'a> {
+        armored: String,
+        text: &'a str,
+    }
+    out(
+        lua,
+        &Out {
+            armored,
+            text: text.as_str(),
+        },
+    )
+}
+
+fn plan_lock(lua: &Lua, path: String) -> LuaResult<LuaValue> {
+    with(|e| out(lua, &e.vault()?.plan_lock(&path).map_err(err)?))
+}
+
+fn plan_unlock_note(lua: &Lua, path: String) -> LuaResult<LuaValue> {
+    let (armored, text) = decrypt_file(&path)?;
+    with(|e| {
+        out(
+            lua,
+            &e.vault()?
+                .plan_unlock(&path, &armored, &text)
+                .map_err(err)?,
+        )
+    })
+}
+
+fn plan_write_locked(
+    lua: &Lua,
+    (path, before, text): (String, Option<String>, String),
+) -> LuaResult<LuaValue> {
+    with(|e| {
+        out(
+            lua,
+            &e.vault()?
+                .plan_write_locked(&path, before.as_deref(), &text)
+                .map_err(err)?,
+        )
+    })
+}
+
 #[derive(serde::Deserialize)]
 struct ChartData {
     #[serde(default)]
@@ -1174,6 +1400,7 @@ fn den_native(lua: &Lua) -> LuaResult<LuaTable> {
     m.set("captured_at", lua.create_function(captured_at)?)?;
     m.set("conflicts", lua.create_function(conflicts)?)?;
     m.set("plan_resolve", lua.create_function(plan_resolve)?)?;
+    m.set("take_side", lua.create_function(take_side)?)?;
     m.set("review", lua.create_function(review)?)?;
     m.set("day_facts", lua.create_function(day_facts)?)?;
     m.set("sun", lua.create_function(sun)?)?;
@@ -1184,5 +1411,15 @@ fn den_native(lua: &Lua) -> LuaResult<LuaTable> {
     m.set("walk_end", lua.create_function(walk_end)?)?;
     m.set("focus", lua.create_function(focus)?)?;
     m.set("chart_png", lua.create_function(chart_png)?)?;
+    m.set(
+        "lock_agent_program",
+        lua.create_function(lock_agent_program)?,
+    )?;
+    m.set("lock_call", lua.create_function(lock_call)?)?;
+    m.set("lock_call_async", lua.create_function(lock_call_async)?)?;
+    m.set("lock_read", lua.create_function(lock_read)?)?;
+    m.set("plan_lock", lua.create_function(plan_lock)?)?;
+    m.set("plan_unlock_note", lua.create_function(plan_unlock_note)?)?;
+    m.set("plan_write_locked", lua.create_function(plan_write_locked)?)?;
     Ok(m)
 }

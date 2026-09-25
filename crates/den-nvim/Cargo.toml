@@ -17,6 +17,7 @@ mlua = { version = "0.12", features = ["module", "luajit", "serialize"] }
 resvg.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+zeroize.workspace = true
 
 # The workspace forbids `unsafe`; this crate only denies it, because mlua's
 # module macro generates the C entry point Neovim calls, and that is

@@ -24,6 +24,46 @@ None.
 
 ## Closed
 
+### B-004 · Neovim crashed during the tests, after `:checkhealth`
+- Found: 2026-09-24, the Neovim test run ending early (about one run in
+  three with M7's code, one in twelve before it)
+- Status: closed (worked around in the tests)
+- Where: tests/nvim/test_commands.lua; the crash is inside Neovim 0.12.5
+- Steps: run `:checkhealth den`, then wipe every buffer (`:%bwipeout!` or
+  `nvim_buf_delete`), repeatedly in one session
+- Expected: the buffers go
+- Actual: Neovim dies in `aubuflocal_remove` (a use-after-free while
+  removing buffer-local autocommands), sometimes later as a malloc abort in
+  whatever allocates next. Den creates no buffer-local autocommands at that
+  moment; the report buffer's own are involved.
+- Fix: the test runs Den's checks directly and collects what they report,
+  so no report buffer is made. Worth reporting upstream with a minimal
+  reproduction.
+- Test: 15 runs of the file in a row pass
+
+### B-005 · The tests could start a real den-agent
+- Found: 2026-09-24, a `den-agent` left running after a test run
+- Status: closed
+- Where: tests/nvim/run.lua
+- Steps: a test opens the fixture's locked note, which asks the agent
+- Expected: tests never touch the person's own agent or socket
+- Actual: the agent was started on the default socket and outlived the run
+- Fix: the whole run uses a private socket and stops its agent at the end
+- Test: `pgrep den-agent` finds nothing after `scripts/test-nvim.sh`
+
+### B-006 · A conflicted locked note would have been settled silently
+- Found: 2026-09-24, while designing locked-note merges (before it shipped)
+- Status: closed
+- Where: den-core sync.rs `continue_after_conflict`
+- Steps: two machines change the same lines of a locked note; sync stops;
+  run `den sync --continue`
+- Expected: the person chooses whose version to keep
+- Actual: an encrypted file has no conflict markers, so it looked settled
+  and one machine's edit would have been dropped
+- Fix: locked notes are skipped by the automatic settling and need an
+  explicit choice (`take_side`, `m`/`t` on the Conflicts screen)
+- Test: `a_locked_note_in_conflict_waits_for_an_explicit_choice`
+
 ### B-001 · The Tasks view took 225 ms on a large vault
 - Found: 2026-09-24, measuring a synthetic 5,000-file vault
 - Status: closed (42132e8)

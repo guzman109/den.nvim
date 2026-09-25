@@ -1,0 +1,37 @@
+[package]
+name = "den-agent"
+description = "Holds the unlocked vault key for a session, so it never sits in an editor."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "den-agent"
+path = "src/main.rs"
+
+[dependencies]
+age = { version = "0.12", features = ["armor", "plugin"] }
+den-core.workspace = true
+nix = { version = "0.31", features = ["user", "socket", "resource", "mman", "process"] }
+serde_json.workspace = true
+zeroize.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+robius-authentication = "0.3"
+security-framework = "3"
+
+[dev-dependencies]
+tempfile.workspace = true
+
+# The workspace forbids `unsafe`; this crate only denies it, because keeping
+# the key out of swap (mlock) is an `unsafe` system call. It is allowed on
+# that one function.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+dbg_macro = "warn"
+todo = "warn"

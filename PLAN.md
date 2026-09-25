@@ -241,6 +241,24 @@ to a pipe Neovim is watching; Lua wakes up and collects it.
   `den lock`. Strict mode: one touch per Neovim session.
 - Locked notes open into memory-only buffers (no swap, no undo files). Git
   gets diff and merge helpers. Timer log lines for locked notes store no text.
+- **As built.** Notes are armored age files encrypted to the vault's public
+  key (`.den/keys/recipient`), so locking and saving need no unlock. Wrapped
+  copies of the secret key live beside it: `password.age` (scrypt),
+  `recovery.age` (a recovery key shown once), `yubikey.age`
+  (age-plugin-yubikey); Touch ID keeps a copy in each Mac's login keychain,
+  read only after a LocalAuthentication check. den-agent unwraps, holds the
+  key (mlocked, no core dumps, wiped on drop) and decrypts on request over a
+  0600 socket in a 0700 folder with a same-uid peer check; it forgets after
+  `lock.forget_after_minutes` (15) unused, on sleep, and on `den lock`, and
+  in strict mode when the unlocking Neovim goes. A locked buffer never
+  becomes an engine overlay, so its tasks stay out of every screen, and the
+  session's ShaDa stops saving registers and search history. git's merge
+  driver decrypts the three versions in memory, combines task edits that do
+  not overlap, and otherwise leaves a whole-file choice. What this does not
+  do: locking a note leaves its earlier clear versions in git history (Den
+  says so); software running as the person can still read a locked note
+  while the vault is unlocked (by asking the agent), which is why the agent
+  forgets quickly; a Touch ID copy is only as strong as the login keychain.
 
 ### Setup, notes and search
 - Opening Neovim in a folder that is not a project asks once: create, link to

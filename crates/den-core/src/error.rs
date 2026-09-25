@@ -37,6 +37,11 @@ pub enum Error {
     #[error("{0}")]
     Invalid(String),
 
+    /// Locking and unlocking: a wrong password, a missing key, a note that
+    /// is not this vault's.
+    #[error("{0}")]
+    Lock(String),
+
     #[error("config {}: {message}", path.display())]
     Config { path: PathBuf, message: String },
 

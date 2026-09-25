@@ -74,7 +74,22 @@ T.test("m moves a task to the project chosen in the picker", function()
   T.lacks(T.read("projects/website.md"), "Find the old logo files")
 end)
 
-T.test(":checkhealth den runs", function()
-  vim.cmd("checkhealth den")
-  T.contains(T.lines(), "engine loaded")
+T.test(":checkhealth den reports on the engine and sync", function()
+  -- Den's checks run directly, collecting what they report: wiping a real
+  -- :checkhealth buffer sometimes crashes Neovim 0.12.5 (BUGS.md, B-004).
+  local seen = {}
+  local fake = {}
+  for _, level in ipairs({ "start", "ok", "info", "warn", "error" }) do
+    fake[level] = function(msg)
+      table.insert(seen, level .. " " .. msg)
+    end
+  end
+  local real = vim.health
+  vim.health = fake
+  local ok, err = pcall(require("den.health").check)
+  vim.health = real
+  T.ok(ok, tostring(err))
+  T.contains(seen, "ok engine loaded")
+  T.contains(seen, "start Den sync")
+  T.contains(seen, "start Den nudges and images")
 end)

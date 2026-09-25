@@ -93,11 +93,16 @@ function M.install(opts, done)
             -- file, and a library changed in place can be refused.
             vim.fn.mkdir(root .. "/lua", "p")
             vim.fn.mkdir(root .. "/bin", "p")
-            os.remove(root .. "/lua/den_native.so")
-            os.remove(root .. "/bin/den")
-            local moved = vim.uv.fs_copyfile(dir .. "/lua/den_native.so", root .. "/lua/den_native.so")
-              and vim.uv.fs_copyfile(dir .. "/bin/den", root .. "/bin/den")
-            vim.uv.fs_chmod(root .. "/bin/den", 493)
+            local moved = true
+            for _, file in ipairs({ "lua/den_native.so", "bin/den", "bin/den-agent" }) do
+              if vim.uv.fs_stat(dir .. "/" .. file) then
+                os.remove(root .. "/" .. file)
+                moved = moved and vim.uv.fs_copyfile(dir .. "/" .. file, root .. "/" .. file) and true
+                if file:match("^bin/") then
+                  vim.uv.fs_chmod(root .. "/" .. file, 493)
+                end
+              end
+            end
             vim.fn.delete(dir, "rf")
             if not moved then
               return done(false, "could not copy the engine into " .. root)

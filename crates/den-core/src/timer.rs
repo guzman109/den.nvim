@@ -249,6 +249,7 @@ impl TimerLog {
 
     /// Starts timing a task, stopping whatever was running.
     pub fn start(&mut self, file: &str, task: &str, at: Timestamp) -> Result<()> {
+        let task = shown(file, task);
         self.reload()?;
         if let Some(r) = self.running() {
             if r.file == file && r.task == task {
@@ -281,6 +282,7 @@ impl TimerLog {
         task: &str,
         at: Timestamp,
     ) -> Result<()> {
+        let (from_task, task) = (shown(from_file, from_task), shown(file, task));
         if from_file == file && from_task == task {
             return Ok(());
         }
@@ -402,9 +404,46 @@ impl TimerLog {
     }
 }
 
+/// What the log may say about a task. The log is plain text synced to
+/// every machine, so a task in a locked note is only "locked task".
+pub const LOCKED_TASK: &str = "locked task";
+
+fn shown<'a>(file: &str, task: &'a str) -> &'a str {
+    if file.ends_with(".md.age") {
+        LOCKED_TASK
+    } else {
+        task
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tasks_in_locked_notes_leave_no_text_in_the_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut log = TimerLog::load(dir.path(), "mac").unwrap();
+        log.start(
+            "notes/health.md.age",
+            "Call Dr. Rivera about results",
+            at("2026-09-24T10:00:00Z"),
+        )
+        .unwrap();
+        log.rename(
+            "notes/health.md.age",
+            "Call Dr. Rivera about results",
+            "notes/health.md.age",
+            "Call Dr. Rivera, second opinion",
+            at("2026-09-24T10:10:00Z"),
+        )
+        .unwrap();
+        log.stop(at("2026-09-24T10:20:00Z")).unwrap();
+        let text = std::fs::read_to_string(TimerLog::dir(dir.path()).join("mac.jsonl")).unwrap();
+        assert!(!text.contains("Rivera"), "{text}");
+        assert!(text.contains("\"task\":\"locked task\""), "{text}");
+        assert_eq!(text.lines().count(), 2, "the rename was a no-op: {text}");
+    }
 
     fn at(s: &str) -> Timestamp {
         s.parse().unwrap()

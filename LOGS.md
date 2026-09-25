@@ -14,6 +14,62 @@ next. A change to [PLAN.md](PLAN.md) always gets an entry here.
 
 ---
 
+## 2026-09-24 · Build: M7, locking
+
+**Did**
+- den-core `lock`: the vault key pair, wrapped copies (password, recovery,
+  YubiKey), note encryption as armored age text, plans to lock, unlock and
+  save locked notes, git helper setup, and in-memory merging of locked
+  notes' decrypted versions. `Change` can now delete a file.
+- den-core `agent`: the protocol and client; den-agent: the program that
+  holds the key (see PLAN.md, Locking, "As built").
+- `den lock [status|setup|note|password|yubikey|touch-id|git]`,
+  `den unlock [--recovery|--yubikey|--touch-id] [note]`, `den show`, and
+  the hidden `git-textconv` / `git-merge` helpers.
+- Neovim: locked notes open and save through the agent in memory-only
+  buffers; `:Den lock …` / `:Den unlock …`; the recovery key shown once in
+  a window that wipes itself; Touch ID tried first when set up, falling
+  back to the password; conflicts in locked notes are a whole-file choice.
+- Timer log lines for tasks in locked notes say only "locked task".
+- Tests: 13 lock, 1 timer, 1 sync (locked conflicts), 9 agent (a real
+  den-agent on a private socket: setup, lock and unlock, password change,
+  forgetting when unused, strict mode, one agent per user, stop), 7 Neovim
+  (setup, lock a note, save, forget, reopen with a wrong then right
+  password, unlock a note for good).
+- Started three helpers: an agent/MCP server (stopped at the owner's word:
+  not yet), research on Dioxus and step counts (see below), and a security
+  review of this milestone (findings to follow).
+
+**Found and fixed:** B-004 (a Neovim 0.12.5 crash the tests could
+trigger), B-005 (tests could start the real agent), B-006 (a conflicted
+locked note would have been settled silently).
+
+**Decided**
+- Armored age files, so locked notes use the same plan/apply/stale-check
+  path as every other file.
+- The agent decrypts; the key never crosses the socket. Wrapping new copies
+  (a new password, a YubiKey, Touch ID) also happens inside the agent.
+- Test builds of den-agent accept a cheap scrypt setting and a short idle
+  limit from the environment; release builds ignore both.
+- Not built yet, and said so in TASKS.md: forgetting on screen lock, a
+  polkit unlock on Linux, and locked folders in note creation. Touch ID and
+  YubiKey are written but untried: they need the owner's finger and key.
+
+**Research (helpers' spikes)**
+- Dioxus: the native renderer (Blitz) is not ready for a Markdown editor
+  (no rich text editing, macOS shortcut bugs). The desktop (webview)
+  renderer with CodeMirror 6 as the one JavaScript component is the
+  workable choice today; GPUI Kit is the alternative without a webview.
+  For the owner to decide at M8.
+- Steps: macOS apps cannot read HealthKit data. The realistic route is an
+  iOS Shortcut that writes today's steps to a file in iCloud Drive, which
+  Den reads (always shown with its time).
+
+**Next:** the security review's findings, the steps file, then M8 needs
+the owner.
+
+---
+
 ## 2026-09-24 · Build: prebuilt engine downloads
 
 **Did**

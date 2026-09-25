@@ -70,7 +70,8 @@ function M.sync_overlays()
   end
   local seen = {}
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-    if vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].buftype == "" then
+    -- Locked notes never tell the engine what they hold.
+    if vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].buftype == "" and not vim.b[buf].den_locked then
       local name = vim.api.nvim_buf_get_name(buf)
       if name ~= "" then
         local ok, rel = pcall(mod.rel, name)
@@ -104,11 +105,20 @@ end
 --- Applies changes. Returns true, or false and a message.
 function M.apply(changes)
   local mod = native.need()
-  local disk, paths = {}, {}
+  local disk, paths, wipe, reread = {}, {}, {}, {}
   for _, change in ipairs(changes or {}) do
     table.insert(paths, change.path)
     local buf = buf_for(mod.abs(change.path))
-    if buf then
+    if buf and (change.delete or vim.b[buf].den_locked) then
+      -- A file going away, or a locked note (the buffer holds plaintext,
+      -- the change ciphertext): the engine writes the disk, and the buffer
+      -- is closed or read again.
+      if vim.bo[buf].modified then
+        return false, change.path .. " has unsaved changes; save or undo them first"
+      end
+      table.insert(disk, change)
+      table.insert(change.delete and wipe or reread, buf)
+    elseif buf then
       if change.before and M.buf_text(buf) ~= change.before then
         return false, change.path .. " changed on screen since Den read it; try again"
       end
@@ -132,6 +142,15 @@ function M.apply(changes)
     local ok, err = pcall(mod.apply, disk)
     if not ok then
       return false, (tostring(err):gsub("^runtime error: ", ""))
+    end
+  end
+  for _, buf in ipairs(wipe) do
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+  end
+  for _, buf in ipairs(reread) do
+    local rel = mod.rel(vim.api.nvim_buf_get_name(buf))
+    if rel then
+      require("den.locked").read(buf, rel)
     end
   end
   state.changed(paths)

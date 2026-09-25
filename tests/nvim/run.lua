@@ -15,6 +15,9 @@ vim.fn.mkdir(vault, "p")
 vim.fn.system({ "cp", "-R", root .. "/tests/vault/.", vault })
 vim.env.XDG_STATE_HOME = tmp .. "/state"
 vim.env.DEN_CONFIG = tmp .. "/no-config.yaml"
+-- A private den-agent for this run, stopped at the end; never the real one.
+vim.env.DEN_AGENT_SOCKET = tmp .. "/agent/agent.sock"
+vim.env.DEN_TEST_SCRYPT_LOG_N = "10"
 vim.o.columns, vim.o.lines = 120, 40
 
 local failures, count = {}, 0
@@ -121,14 +124,23 @@ function T.fresh()
   T.ok(require("den.state").wait(10000), "the vault loads")
 end
 
+-- DEN_TEST=locked runs only files whose name contains "locked".
 local files = vim.fn.glob(root .. "/tests/nvim/test_*.lua", false, true)
 table.sort(files)
+if vim.env.DEN_TEST and vim.env.DEN_TEST ~= "" then
+  files = vim.tbl_filter(function(f)
+    return vim.fn.fnamemodify(f, ":t"):find(vim.env.DEN_TEST, 1, true) ~= nil
+  end, files)
+end
 for _, file in ipairs(files) do
   io.write("# " .. vim.fn.fnamemodify(file, ":t") .. "\n")
   T.fresh()
   dofile(file)
 end
 
+if vim.uv.fs_stat(vim.env.DEN_AGENT_SOCKET) then
+  pcall(require("den.native").call, "lock_call", { op = "stop" })
+end
 io.write(string.format("\n%d tests, %d failed\n", count, #failures))
 io.stdout:flush()
 vim.fn.delete(tmp, "rf")

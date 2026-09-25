@@ -14,10 +14,12 @@
 //! an interface can apply it to an open editor buffer instead of the disk, and
 //! a file that moved underneath us is refused rather than overwritten.
 
+pub mod agent;
 pub mod config;
 pub mod conflict;
 pub mod error;
 pub mod frontmatter;
+pub mod lock;
 pub mod nudge;
 pub mod ops;
 pub mod parse;

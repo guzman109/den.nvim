@@ -182,6 +182,34 @@ Den combines the edits. When they really disagree, the statusline says
 `c` combine · `m` mine · `t` theirs · `b` both · `e` edit by hand. The sync
 finishes when the last one is settled.
 
+## Locked notes
+
+Some notes shouldn't sit on disk, or on a git host, in the clear. Locked
+notes are `x.md.age` files encrypted with age. Reading one needs the vault
+unlocked; locking and saving never do.
+
+```vim
+:Den lock setup          " once: a password, and a recovery key shown once
+:Den lock note           " lock the note in this buffer
+:Den lock                " forget the key now
+:Den unlock              " password (or Touch ID, once set up)
+:Den unlock note         " turn this locked note plain again
+:Den lock touch-id       " macOS: unlock with a fingerprint on this Mac
+```
+
+From a shell: `den lock setup`, `den lock note notes/x.md`, `den unlock`,
+`den lock yubikey` (with age-plugin-yubikey), `den show notes/x.md.age`.
+
+The key lives only in `den-agent`, a small program that starts when needed
+and forgets the key after 15 minutes unused, when the computer sleeps, or on
+`:Den lock`. Locked notes open in buffers with no swap or undo file, and
+while one is open Neovim stops saving registers and search history. Locking
+a note does not remove its earlier versions from git history.
+
+```yaml
+lock: { forget_after_minutes: 15, strict: false }   # strict: each Neovim unlocks for itself
+```
+
 ## Settings
 
 `~/.config/den/config.yaml` (all optional):

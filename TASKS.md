@@ -93,14 +93,20 @@ finished. Milestones and exit criteria are in [PLAN.md](PLAN.md).
 
 ## M7 · Locking
 
-- [ ] Vault key with one wrapped copy per unlock method #lock
-- [ ] den-agent: user-only socket, peer check, key never leaves, memory locked and wiped, forgets on idle / sleep / screen lock #lock
-- [ ] Unlock: Touch ID, Linux password prompt, YubiKey, password, recovery key #lock
-- [ ] Lock and unlock notes; locked folders; `den lock` #lock
-- [ ] Memory-only buffers for locked notes #lock
-- [ ] git diff and merge helpers for `.md.age` #lock
-- [ ] No task text in timer log lines for locked notes #lock
-- [ ] Strict mode: one touch per Neovim session #lock
+- [x] Vault key with one wrapped copy per unlock method #lock @done(2026-09-24)
+- [x] den-agent: user-only socket, peer check, key never leaves, memory locked and wiped, forgets on idle and sleep #lock @done(2026-09-24)
+- [x] Unlock: password, recovery key; YubiKey and Touch ID written #lock @done(2026-09-24)
+- [x] Lock and unlock notes; `den lock` / `den unlock`; `:Den lock` / `:Den unlock` #lock @done(2026-09-24)
+- [x] Memory-only buffers for locked notes (no swap, no undo file, no registers or search history in ShaDa) #lock @done(2026-09-24)
+- [x] git diff and merge helpers for `.md.age` (decrypted in memory only) #lock @done(2026-09-24)
+- [x] No task text in timer log lines for locked notes #lock @done(2026-09-24)
+- [x] Strict mode: one unlock per Neovim session #lock @done(2026-09-24)
+- [ ] Try Touch ID on the owner's Mac (needs a finger; never run by tests) #lock
+- [ ] Try a YubiKey with age-plugin-yubikey (needs the key) #lock
+- [ ] Sign den-agent with the owner's Developer ID, so the keychain entry survives updates without prompting #lock
+- [ ] Forget the key when the screen locks (sleep and idle already do) #lock
+- [ ] Linux: a system password prompt (polkit) as an unlock method; for now YubiKey or password #lock
+- [ ] Locked folders: new notes in a folder with `.den-locked` start locked (engine check exists; wire into note creation) #lock
 
 ## M8 · Desktop
 

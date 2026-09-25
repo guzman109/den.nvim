@@ -8,6 +8,9 @@
 //! den stop              stop the timer
 //! den sync [--continue] commit, pull and push the vault
 //! den init [folder]     make a folder a vault
+//! den lock [...]        lock the vault now, or set up and manage locking
+//! den unlock [...]      unlock the vault, or turn a locked note plain
+//! den show <file>       print a locked note
 //! ```
 //!
 //! `den prompt` runs before every shell prompt, so it reads only what it
@@ -15,6 +18,7 @@
 //! error: a broken prompt is worse than an empty one.
 
 mod askpass;
+mod locking;
 
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -71,6 +75,37 @@ enum Command {
         #[arg(long = "continue")]
         resume: bool,
     },
+    /// Forget the vault key now. With a subcommand: set up and manage
+    /// locking.
+    Lock {
+        #[command(subcommand)]
+        what: Option<locking::LockCommand>,
+    },
+    /// Unlock the vault (password by default), or turn a locked note plain.
+    Unlock {
+        /// With the recovery key instead of the password.
+        #[arg(long, conflicts_with_all = ["yubikey", "touch_id"])]
+        recovery: bool,
+        #[arg(long, conflicts_with = "touch_id")]
+        yubikey: bool,
+        #[arg(long)]
+        touch_id: bool,
+        #[command(subcommand)]
+        what: Option<locking::UnlockCommand>,
+    },
+    /// Print a locked note (the vault must be unlocked).
+    Show { file: PathBuf },
+    /// For git: a locked note as text, for diffs.
+    #[command(hide = true)]
+    GitTextconv { file: PathBuf },
+    /// For git: merge a locked note (`%O %A %B %P`).
+    #[command(hide = true)]
+    GitMerge {
+        base: PathBuf,
+        ours: PathBuf,
+        theirs: PathBuf,
+        path: Option<String>,
+    },
     /// Make a folder a vault: the folders, the journal template and a git
     /// repository. Files already there are kept.
     Init {
@@ -112,6 +147,33 @@ fn main() -> ExitCode {
         Command::Stop => stop(cli.vault.as_deref()),
         Command::Sync { resume } => sync_vault(cli.vault.as_deref(), resume),
         Command::Init { folder, remote } => init(cli.vault.as_deref(), folder, remote),
+        Command::Lock { what } => {
+            setup(cli.vault.as_deref()).and_then(|(_, root)| locking::lock(&root, what))
+        }
+        Command::Unlock {
+            recovery,
+            yubikey,
+            touch_id,
+            what,
+        } => {
+            let method = if recovery {
+                den_core::agent::UnlockMethod::Recovery
+            } else if yubikey {
+                den_core::agent::UnlockMethod::Yubikey
+            } else if touch_id {
+                den_core::agent::UnlockMethod::TouchId
+            } else {
+                den_core::agent::UnlockMethod::Password
+            };
+            setup(cli.vault.as_deref()).and_then(|(_, root)| locking::unlock(&root, what, method))
+        }
+        Command::Show { file } => {
+            setup(cli.vault.as_deref()).and_then(|(_, root)| locking::show(&root, &file))
+        }
+        Command::GitTextconv { file } => locking::git_textconv(&file),
+        Command::GitMerge {
+            base, ours, theirs, ..
+        } => locking::git_merge(&base, &ours, &theirs),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -315,6 +377,7 @@ fn stop(vault: Option<&Path>) -> Result<()> {
 /// Secrets are asked for on the terminal when there is one.
 fn sync_env() -> sync::Env {
     sync::Env {
+        den: std::env::current_exe().ok(),
         prompt: if std::io::stdin().is_terminal() {
             sync::Prompt::Terminal
         } else {

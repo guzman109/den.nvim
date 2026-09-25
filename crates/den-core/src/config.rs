@@ -22,6 +22,7 @@ pub struct Config {
     pub nudges: Nudges,
     pub focus: Focus,
     pub sync: Sync,
+    pub lock: Lock,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -59,6 +60,27 @@ pub struct Sync {
     pub every_minutes: u32,
 }
 
+/// How long den-agent keeps the vault unlocked.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Lock {
+    /// Forget the key after this long without use; 0 keeps it until sleep
+    /// or `den lock`.
+    pub forget_after_minutes: u32,
+    /// Each Neovim unlocks for itself, and the key is forgotten when it
+    /// quits.
+    pub strict: bool,
+}
+
+impl Default for Lock {
+    fn default() -> Lock {
+        Lock {
+            forget_after_minutes: 15,
+            strict: false,
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Config {
         Config {
@@ -68,6 +90,7 @@ impl Default for Config {
             nudges: Nudges::default(),
             focus: Focus::default(),
             sync: Sync::default(),
+            lock: Lock::default(),
         }
     }
 }

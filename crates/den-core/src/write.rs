@@ -45,6 +45,15 @@ pub fn apply(root: &Path, changes: &[Change], dirty: &BTreeSet<String>) -> Resul
         targets.push(abs);
     }
     for (change, abs) in changes.iter().zip(targets) {
+        if change.delete {
+            std::fs::remove_file(&abs).map_err(|e| Error::io(&abs, e))?;
+            if let Some(parent) = abs.parent()
+                && let Ok(dir) = std::fs::File::open(parent)
+            {
+                let _ = dir.sync_all();
+            }
+            continue;
+        }
         if change.before.is_none()
             && let Some(parent) = abs.parent()
         {
@@ -141,6 +150,7 @@ mod tests {
             path: path.to_string(),
             before: before.map(str::to_string),
             after: after.to_string(),
+            delete: false,
         }
     }
 
