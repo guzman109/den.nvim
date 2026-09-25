@@ -204,7 +204,7 @@ fn watch(state: Shared) {
         // The screen is asked about every few seconds, and only while there
         // is a key to forget.
         let holding = !lock_state(&state).keys.is_empty();
-        let locked = holding && ticks % 3 == 0 && platform::screen_locked();
+        let locked = holding && ticks.is_multiple_of(3) && platform::screen_locked();
         let mut s = lock_state(&state);
         if slept || locked {
             s.keys.clear();

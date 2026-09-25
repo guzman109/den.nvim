@@ -73,6 +73,7 @@ pub fn screen_locked() -> bool {
 
 /// macOS lists `CGSSessionScreenIsLocked` = true for a console session
 /// while its screen is locked (the key is absent otherwise).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn macos_locked(plist: &str) -> bool {
     let key = "<key>CGSSessionScreenIsLocked</key>";
     plist
@@ -81,6 +82,7 @@ pub fn macos_locked(plist: &str) -> bool {
 }
 
 /// This user's session ids from `loginctl list-sessions --no-legend`.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn linux_sessions(list: &str, uid: &str) -> Vec<String> {
     list.lines()
         .filter_map(|line| {
