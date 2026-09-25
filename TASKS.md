@@ -53,6 +53,8 @@ finished. Milestones and exit criteria are in [PLAN.md](PLAN.md).
 
 - [x] Engine as a Lua module (`require("den_native")`); `:Den build` / `scripts/build-nvim.sh` builds it #nvim @done(2026-09-24)
 - [x] The engine builds itself with cargo on first start and after updates (download only without Rust); starts with no restart #nvim @done(2026-09-25)
+- [x] crates.io: den-core, den-cli, den-agent, den-mcp ready to publish (dry run passes), cargo-binstall from the GitHub release, trusted publishing in the release workflow #release @done(2026-09-25)
+- [ ] First crates.io publish by hand, then trusted publishing and `PUBLISH_CRATES` (README.md, Releasing) #release
 - [x] `:Den <sub>` commands and a Lua API #nvim @done(2026-09-24)
 - [x] Background thread + pipe wake-up for vault loading #nvim @done(2026-09-24)
 - [x] Tasks screen `den://tasks`: this project ↔ all projects (`<Tab>`); `s p x - a e m o f g?` #nvim @done(2026-09-24)

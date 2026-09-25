@@ -5,12 +5,20 @@ resolver = "3"
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+# Checked by clippy (`incompatible_msrv`); the dependencies need 1.88 too.
+rust-version = "1.88"
 license = "Apache-2.0"
 repository = "https://github.com/guzman109/den.nvim"
+homepage = "https://github.com/guzman109/den.nvim"
+readme = "README.md"
+keywords = ["notes", "tasks", "markdown", "neovim", "productivity"]
+categories = ["command-line-utilities"]
 
 [workspace.dependencies]
 age = { version = "0.12", features = ["armor"] }
-den-core = { path = "crates/den-core" }
+# The version is published with it; keep it equal to the workspace version
+# (the release workflow checks).
+den-core = { path = "crates/den-core", version = "0.1.0" }
 clap = { version = "4", features = ["derive"] }
 gethostname = "1"
 resvg = { version = "0.48", default-features = false }

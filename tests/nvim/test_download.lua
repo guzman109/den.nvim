@@ -58,6 +58,8 @@ end
 T.test("the plugin and engine versions match", function()
   local cargo = read(T.root .. "/Cargo.toml")
   T.eq(require("den.version"), cargo:match('\nversion = "([^"]+)"'))
+  -- The version den-cli, den-agent and den-mcp ask crates.io for.
+  T.eq(cargo:match('\nden%-core = { path = "crates/den%-core", version = "([^"]+)" }'), require("den.version"))
 end)
 
 T.test("a release for this machine is checked and installed", function()

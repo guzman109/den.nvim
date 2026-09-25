@@ -5,10 +5,24 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+rust-version.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [[bin]]
 name = "den-mcp"
 path = "src/main.rs"
+
+# `cargo binstall den-mcp` downloads the program from the GitHub release for
+# this version (built by .github/workflows/release.yml), and compiles it
+# where there is none. Never from third-party build caches.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/den-{ version }-{ target }{ archive-suffix }"
+pkg-fmt = "tgz"
+bin-dir = "bin/{ bin }{ binary-ext }"
+disabled-strategies = ["quick-install"]
 
 [dependencies]
 den-core.workspace = true

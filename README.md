@@ -41,11 +41,17 @@ a shell, `scripts/build-nvim.sh`), and `setup({ build = false })` turns the
 automatic builds off. With lazy.nvim, `build = "sh scripts/build-nvim.sh"`
 builds during updates instead.
 
-The `den` command for the shell:
+The programs on their own, for the shell or an AI agent without Neovim
+(Rust 1.88 or later):
 
 ```sh
-cargo install --path crates/den-cli
+cargo install den-cli den-agent den-mcp     # compiles them
+cargo binstall den-cli den-agent den-mcp    # downloads the release's builds
 ```
+
+`den-cli` installs the `den` command. [cargo-binstall](https://github.com/cargo-bins/cargo-binstall)
+takes the files from this repository's GitHub release and compiles where
+there is none for your machine.
 
 ## The vault
 
@@ -300,8 +306,9 @@ Continuous integration runs on GitHub Actions (`.github/workflows/ci.yml`):
 formatting, clippy, the Rust tests and the headless Neovim tests, on Linux
 and macOS, for every push and pull request.
 
-To release, bump `version` in `Cargo.toml` and `lua/den/version.lua` (the
-release job and a test check they match), then push a tag such as `v0.2.0`.
+To release, bump the version in three places, `version` and the `den-core`
+dependency in `Cargo.toml`, and `lua/den/version.lua` (the release job and
+a test check they match), then push a tag such as `v0.2.0`.
 `.github/workflows/release.yml` runs `scripts/package.sh` on macOS (Apple
 silicon) and Linux (x86_64 and arm64) and attaches the packages and a
 `SHA256SUMS` file to a GitHub release. On machines without Rust, Den
@@ -313,3 +320,27 @@ To sign a release, sign `SHA256SUMS` on your own machine
 (`ssh-keygen -Y sign -n den-release -f <key> SHA256SUMS`), upload the
 `.sig`, and commit `release/allowed_signers` (`den-release <public key>`);
 from then on Den refuses unsigned or wrongly signed downloads.
+
+#### crates.io
+
+`den-core`, `den-cli`, `den-agent` and `den-mcp` are published to crates.io
+(`den-nvim` is not: Neovim loads it from the plugin's folder). The release
+workflow publishes them with trusted publishing, so no API key is stored
+anywhere, but crates.io only allows that for crates that already exist.
+Once, by hand:
+
+1. Push a tag, so the GitHub release exists for `cargo binstall`.
+2. On crates.io (sign in with GitHub), make an API token under Account
+   Settings → API Tokens, with the scopes `publish-new` and
+   `publish-update`, for crates matching `den-*`, expiring in a day.
+3. From a clone at that tag: `cargo login` (it asks for the token), then
+   `cargo publish --workspace --locked`, then `cargo logout`, and revoke
+   the token.
+4. On crates.io, for each of the four crates: Settings → Trusted
+   Publishing → Add, with GitHub, owner `guzman109`, repository
+   `den.nvim` and workflow `release.yml`.
+5. `gh variable set PUBLISH_CRATES --body true` in this repository.
+
+From then on every tag publishes the new versions. A published version
+cannot be deleted, only yanked (`cargo yank`), which hides it from new
+installs.

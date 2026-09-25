@@ -14,6 +14,32 @@ next. A change to [PLAN.md](PLAN.md) always gets an entry here.
 
 ---
 
+## 2026-09-25 · Ready for crates.io
+
+**Did**
+- `den-core`, `den-cli`, `den-agent` and `den-mcp` are ready for
+  crates.io: descriptions, keywords, `rust-version = "1.88"` (the
+  dependencies' highest; clippy's `incompatible_msrv` finds nothing newer
+  in our code), and a version on the `den-core` dependency. `den-nvim` is
+  `publish = false`. `cargo publish --workspace --dry-run` packages and
+  builds all four in order.
+- `cargo binstall` takes the programs from the GitHub release (the same
+  archives Den downloads) and never from third-party caches.
+- The release workflow publishes to crates.io with trusted publishing
+  (no stored API key), behind the `PUBLISH_CRATES` repository variable.
+  The release job and a test check the `den-core` version too.
+
+**Decided**
+- Trusted publishing over a token in the repository's secrets. crates.io
+  needs the first version published by hand with an API token, so that
+  one is short-lived and revoked right after.
+
+**Next**
+- The owner publishes 0.1.0 once and registers the workflow (README.md,
+  "Releasing").
+
+---
+
 ## 2026-09-25 · The code moves to GitHub; the engine builds itself
 
 **Did**
