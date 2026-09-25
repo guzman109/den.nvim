@@ -4,6 +4,7 @@
 --     vault = "~/Notes/den",      -- optional; else ~/.config/den/config.yaml
 --     ask_about_folders = true,   -- ask once about unknown code folders
 --     images = true,              -- charts and focus rings as images in kitty
+--     build = true,               -- build the engine when it is missing or old
 --   })
 --
 -- Break nudges have no option here, on purpose: see lua/den/nudges.lua.
@@ -16,16 +17,34 @@ local M = {}
 M.options = {}
 local started = false
 
-function M.setup(opts)
+--- Starts Den. The first time (and after an update), the engine is built
+--- from source before it is loaded, in the background; Den starts once the
+--- build is done, with no restart. Returns false until it has started.
+function M.setup(opts, built)
   M.options = vim.tbl_extend("force", M.options, opts or {})
   require("den.highlights").setup()
+  local native = require("den.native")
+  if native.building() then
+    vim.notify("Den: the engine is still building")
+    return false
+  end
+  if not built and not native.loaded() and M.options.build ~= false and native.stale() then
+    native.build(function()
+      -- Built or not: an older engine still loads, and a missing one says
+      -- how to build it.
+      if not started then
+        M.setup(nil, true)
+      end
+    end)
+    return false
+  end
   local ok, err = pcall(require("den.state").setup, {
     vault = M.options.vault,
     machine = M.options.machine,
     config = M.options.config,
   })
   if not ok then
-    vim.notify("Den: " .. tostring(err):gsub("^runtime error: ", ""), vim.log.levels.ERROR)
+    vim.notify("Den: " .. native.message(err), vim.log.levels.ERROR)
     return false
   end
   started = true

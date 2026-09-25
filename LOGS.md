@@ -14,6 +14,38 @@ next. A change to [PLAN.md](PLAN.md) always gets an entry here.
 
 ---
 
+## 2026-09-25 · The code moves to GitHub; the engine builds itself
+
+**Did**
+- The code now lives at github.com/guzman109/den.nvim (public), with CI
+  and releases on GitHub Actions. The original repository uses git's
+  SHA-256 format, which GitHub does not accept, so the history there is a
+  SHA-1 copy: same content, authors, dates and messages, re-signed.
+- Den installs its own engine, the way blink.cmp can. At setup, when
+  the engine is missing or its Rust code is newer (as after an update),
+  it builds with cargo in the background and starts when done, with no
+  restart. After `vim.pack.update()` a `PackChanged` hook rebuilds right
+  away. Cargo's cache in `target/` keeps rebuilds incremental: 45 s from
+  nothing, 30 s after a change to den-core, on a recent Mac.
+- `scripts/build-nvim.sh` builds with `--locked` and honours
+  `CARGO_TARGET_DIR`; `:checkhealth den` reports an old engine and a
+  missing cargo.
+
+**Decided**
+- Cargo first, download second: a build from the checkout always matches
+  the Lua beside it, while a release is chosen by version number and can
+  lag a plugin that tracks `main`. Machines without Rust download.
+
+**Reversed**
+- Briefly planned GitLab with source builds only (no hosted CI, no
+  downloads). GitLab's macOS runners are paid, and GitHub's are free for
+  public repositories, so everything moved to GitHub instead.
+
+**Next**
+- B-010: pin "now" in the tests, so CI is green on any day.
+
+---
+
 ## 2026-09-25 · Fixes: the bug hunt and the second security review
 
 **Did**

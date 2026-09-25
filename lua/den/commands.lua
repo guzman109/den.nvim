@@ -160,7 +160,11 @@ M.subcommands = {
     require("den.sync").command(args)
   end),
   build = function(args)
-    require("den.native").build(nil, args[1] == "source")
+    require("den.native").build(function(ok)
+      if ok and not require("den.native").loaded() then
+        den().setup(nil, true)
+      end
+    end, args[1])
   end,
   health = function()
     vim.cmd("checkhealth den")
@@ -219,14 +223,14 @@ function M.complete(arglead, cmdline)
       return vim.startswith(n, arglead)
     end, { "tab" })
   end
+  if words[2] == "build" then
+    return { "download" }
+  end
   if words[2] == "project" then
     return { "new" }
   end
   if words[2] == "sync" then
     return { "continue" }
-  end
-  if words[2] == "build" then
-    return { "source" }
   end
   if words[2] == "lock" then
     return vim.tbl_filter(function(n)

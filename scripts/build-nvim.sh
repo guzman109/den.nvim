@@ -5,16 +5,22 @@
 # bin/den-agent (holds the unlocked vault key) and bin/den-mcp (the MCP
 # server for AI agents).
 #
+# `:Den build` runs this, and Den runs it by itself when the engine is
+# missing or older than the code. Cargo keeps its cache in target/, so a
+# build after an update only compiles what changed. `--locked` builds with
+# exactly the dependency versions in Cargo.lock.
+#
 #   scripts/build-nvim.sh          release build
 #   scripts/build-nvim.sh debug    debug build
 set -eu
 cd "$(dirname "$0")/.."
+target="${CARGO_TARGET_DIR:-target}"
 if [ "${1:-release}" = debug ]; then
-  cargo build -p den-nvim -p den-cli -p den-agent -p den-mcp
-  dir=target/debug
+  cargo build --locked -p den-nvim -p den-cli -p den-agent -p den-mcp
+  dir="$target/debug"
 else
-  cargo build --release -p den-nvim -p den-cli -p den-agent -p den-mcp
-  dir=target/release
+  cargo build --locked --release -p den-nvim -p den-cli -p den-agent -p den-mcp
+  dir="$target/release"
 fi
 case "$(uname -s)" in
   Darwin) lib="$dir/libden_native.dylib" ;;

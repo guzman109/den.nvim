@@ -20,18 +20,26 @@ vim.pack.add({ "https://github.com/guzman109/den.nvim" })
 require("den").setup({ vault = "~/Notes/den" })
 ```
 
-Then install the engine (and the `den` command it uses for passphrase
-prompts) once, and after each update:
+Den's engine (the Neovim module, and the `den`, `den-agent` and `den-mcp`
+programs beside it) is installed on the first start, in the background, and
+Den starts as soon as it is ready, with no restart:
 
-```vim
-:Den build
-```
+- With [Rust](https://rustup.rs) installed, it is compiled from the plugin's
+  own source with cargo: under a minute on a recent Mac, a few on a slower
+  machine, plus downloading the crates the first time. The engine then
+  always matches the code.
+- Without Rust, the prebuilt engine for the plugin's version is downloaded
+  from its GitHub release and checked against the release's `SHA256SUMS`
+  (and its signature, if the plugin has `release/allowed_signers`).
 
-This downloads the prebuilt engine for the plugin's version, checks it
-against the release's `SHA256SUMS` (and its signature, if the plugin has
-`release/allowed_signers`), and installs it. With no release for your
-machine, or a private project, it builds from source with cargo instead;
-`:Den build source` always does. From a shell: `scripts/build-nvim.sh`.
+After `vim.pack.update()`, Den rebuilds by itself. Cargo keeps its cache in
+the plugin's `target/` folder, so only what changed is compiled. Den also
+rebuilds at start whenever the Rust code is newer than the engine.
+
+`:Den build` installs by hand (`:Den build download` always downloads; from
+a shell, `scripts/build-nvim.sh`), and `setup({ build = false })` turns the
+automatic builds off. With lazy.nvim, `build = "sh scripts/build-nvim.sh"`
+builds during updates instead.
 
 The `den` command for the shell:
 
@@ -296,11 +304,12 @@ To release, bump `version` in `Cargo.toml` and `lua/den/version.lua` (the
 release job and a test check they match), then push a tag such as `v0.2.0`.
 `.github/workflows/release.yml` runs `scripts/package.sh` on macOS (Apple
 silicon) and Linux (x86_64 and arm64) and attaches the packages and a
-`SHA256SUMS` file to a GitHub release. `:Den build` finds that release from
-the git remote the plugin was installed from; `setup({ release_url = … })`
-points it elsewhere. All of this is free for public repositories.
+`SHA256SUMS` file to a GitHub release. On machines without Rust, Den
+downloads from that release, found from the git remote the plugin was
+installed from; `setup({ release_url = … })` points it elsewhere. All of
+this is free for public repositories.
 
 To sign a release, sign `SHA256SUMS` on your own machine
 (`ssh-keygen -Y sign -n den-release -f <key> SHA256SUMS`), upload the
 `.sig`, and commit `release/allowed_signers` (`den-release <public key>`);
-from then on `:Den build` refuses unsigned or wrongly signed releases.
+from then on Den refuses unsigned or wrongly signed downloads.

@@ -93,3 +93,83 @@ T.test(":checkhealth den reports on the engine and sync", function()
   T.contains(seen, "start Den sync")
   T.contains(seen, "start Den nudges and images")
 end)
+
+T.test("the engine counts as old when its Rust code is newer", function()
+  local native = require("den.native")
+  local root = T.tmp .. "/plugin"
+  vim.fn.mkdir(root .. "/lua", "p")
+  vim.fn.mkdir(root .. "/crates/den-core/src", "p")
+  vim.fn.mkdir(root .. "/crates/den-core/tests", "p")
+  local function file(rel, at)
+    vim.fn.writefile({ "x" }, root .. "/" .. rel)
+    vim.uv.fs_utime(root .. "/" .. rel, at, at)
+  end
+  T.ok(native.stale(root), "nothing built yet")
+  file("crates/den-core/src/lib.rs", 1000)
+  file("Cargo.lock", 1000)
+  file("lua/den_native.so", 2000)
+  T.ok(not native.stale(root), "built after the code")
+  file("crates/den-core/tests/vault.rs", 3000)
+  T.ok(not native.stale(root), "tests are not part of the engine")
+  file("crates/den-core/src/lib.rs", 3000)
+  T.ok(native.stale(root), "a source file changed, as after an update")
+  file("lua/den_native.so", 4000)
+  file("Cargo.lock", 5000)
+  T.ok(native.stale(root), "the lock file changed")
+end)
+
+T.test("setup waits for a build and never starts a second one", function()
+  local native = require("den.native")
+  local den = require("den")
+  local real = { build = native.build, stale = native.stale, loaded = native.loaded, building = native.building }
+  local builds, running = 0, false
+  native.loaded = function()
+    return false
+  end
+  native.stale = function()
+    return true
+  end
+  native.building = function()
+    return running
+  end
+  native.build = function()
+    builds = builds + 1
+    running = true
+  end
+  T.eq(den.setup({ build = true }), false, "not started while building")
+  T.eq(den.setup(), false)
+  T.eq(builds, 1, "one build")
+  T.contains(T.notes[#T.notes], "still building")
+  for k, v in pairs(real) do
+    native[k] = v
+  end
+  den.options.build = false
+end)
+
+T.test("without cargo the engine is downloaded, and one install runs at a time", function()
+  local native = require("den.native")
+  local download = require("den.download")
+  local real_cargo, real_install = native.cargo, download.install
+  local installs, finish = 0, nil
+  native.cargo = function()
+    return nil
+  end
+  download.install = function(_, done)
+    installs = installs + 1
+    finish = done
+  end
+  local results = {}
+  native.build(function(ok)
+    table.insert(results, ok)
+  end)
+  native.build(function(ok)
+    table.insert(results, ok)
+  end)
+  T.eq(installs, 1, "the second call joins the first")
+  T.ok(native.building())
+  finish(false, "no prebuilt engine for this machine")
+  T.eq(results, { false, false })
+  T.ok(not native.building())
+  T.contains(T.notes[#T.notes], "Install Rust")
+  native.cargo, download.install = real_cargo, real_install
+end)

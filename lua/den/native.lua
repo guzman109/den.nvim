@@ -51,41 +51,117 @@ function M.call(name, ...)
   return nil, M.message(result)
 end
 
---- Installs the engine: the prebuilt release for this version when there
---- is one, else a build with cargo (`from_source` skips the download).
---- Restart Neovim afterwards to load it.
-function M.build(on_done, from_source)
-  if not from_source then
+--- Whether the library is loaded in this session.
+function M.loaded()
+  return lib ~= nil
+end
+
+--- Whether the engine needs building: it is missing, or a Rust source,
+--- manifest or the lock file is newer than it, as after an update (git
+--- writes the files it changes with the current time). `root` defaults to
+--- this plugin.
+function M.stale(root)
+  root = root or M.root
+  local built = vim.uv.fs_stat(root .. "/lua/den_native.so")
+  if not built then
+    return true
+  end
+  local at = built.mtime.sec
+  local function newer(path)
+    local stat = vim.uv.fs_stat(path)
+    return stat ~= nil and stat.mtime.sec > at
+  end
+  for _, file in ipairs({ "Cargo.lock", "Cargo.toml", "rust-toolchain.toml" }) do
+    if newer(root .. "/" .. file) then
+      return true
+    end
+  end
+  local crates = root .. "/crates"
+  local skip = function(dir)
+    local name = vim.fs.basename(dir)
+    return name ~= "target" and name ~= "tests" and name:sub(1, 1) ~= "."
+  end
+  for name, kind in vim.fs.dir(crates, { depth = 8, skip = skip }) do
+    if kind == "file" and (name:match("%.rs$") or name:match("Cargo%.toml$")) and newer(crates .. "/" .. name) then
+      return true
+    end
+  end
+  return false
+end
+
+--- The cargo to build with: on PATH, else rustup's usual place (a Neovim
+--- started from the desktop may not have ~/.cargo/bin on its PATH).
+function M.cargo()
+  if vim.fn.executable("cargo") == 1 then
+    return vim.fn.exepath("cargo")
+  end
+  local home = vim.fs.normalize("~/.cargo/bin/cargo")
+  if vim.fn.executable(home) == 1 then
+    return home
+  end
+  return nil
+end
+
+local building = nil
+
+--- Whether a build is running.
+function M.building()
+  return building ~= nil
+end
+
+local function finish(ok, message)
+  local waiting = building or {}
+  building = nil
+  if not ok then
+    vim.notify("Den: " .. message, vim.log.levels.ERROR)
+  elseif lib then
+    vim.notify("Den: " .. message .. ". Restart Neovim to use it.")
+  else
+    vim.notify("Den: " .. message .. ".")
+  end
+  for _, fn in pairs(waiting) do
+    pcall(fn, ok)
+  end
+end
+
+--- Installs the engine (the Neovim module, `den`, `den-agent` and
+--- `den-mcp`), in the background. With cargo, it is built from this
+--- checkout's source (scripts/build-nvim.sh), so it always matches the
+--- code; cargo keeps its cache in the plugin's target/ folder, so after an
+--- update only what changed is compiled. Without cargo, or with `how` =
+--- "download", the prebuilt release for this version is downloaded
+--- instead. `on_done(ok)` runs after; a build already running is joined,
+--- not started twice.
+function M.build(on_done, how)
+  if building then
+    table.insert(building, on_done)
+    return
+  end
+  building = { on_done }
+  local cargo = how ~= "download" and M.cargo()
+  if not cargo then
     vim.notify("Den: downloading the engine…")
     require("den.download").install({}, function(ok, message)
       if ok then
-        vim.notify("Den: " .. message .. ". Restart Neovim to load it.")
-        if on_done then
-          on_done(true)
-        end
-      elseif vim.fn.executable("cargo") == 1 then
-        vim.notify("Den: " .. message .. "; building from source instead")
-        M.build(on_done, true)
+        finish(true, message)
+      elseif how == "download" then
+        finish(false, message)
       else
-        vim.notify("Den: " .. message .. ", and cargo is not installed to build it", vim.log.levels.ERROR)
-        if on_done then
-          on_done(false)
-        end
+        finish(false, message .. ". Install Rust (https://rustup.rs) to build it instead, then run :Den build")
       end
     end)
     return
   end
-  local script = M.root .. "/scripts/build-nvim.sh"
-  vim.notify("Den: building the engine…")
-  vim.system({ "sh", script }, { cwd = M.root, text = true }, function(res)
+  local first = vim.uv.fs_stat(M.root .. "/target") == nil
+  vim.notify("Den: building the engine with cargo" .. (first and " (the first build takes a few minutes)…" or "…"))
+  local env = { PATH = vim.fs.dirname(cargo) .. ":" .. (vim.env.PATH or "") }
+  vim.system({ "sh", M.root .. "/scripts/build-nvim.sh" }, { cwd = M.root, text = true, env = env }, function(res)
     vim.schedule(function()
       if res.code == 0 then
-        vim.notify("Den: engine built. Restart Neovim to load it.")
+        finish(true, "engine built")
       else
-        vim.notify("Den: build failed\n" .. (res.stderr or ""), vim.log.levels.ERROR)
-      end
-      if on_done then
-        on_done(res.code == 0)
+        local lines = vim.split(vim.trim(res.stderr or ""), "\n")
+        finish(false, "the engine did not build\n" .. table.concat(vim.list_slice(lines, math.max(1, #lines - 15)), "\n"))
       end
     end)
   end)

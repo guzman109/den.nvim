@@ -120,7 +120,9 @@ function T.fresh()
   vim.fn.system({ "cp", "-R", root .. "/tests/vault/.", dir })
   T.vault = dir
   vim.cmd("silent! %bwipeout!")
-  T.ok(require("den").setup({ vault = dir, machine = "test", ask_about_folders = false }), "setup")
+  -- Never a build from here: scripts/test-nvim.sh runs against the engine
+  -- already built.
+  T.ok(require("den").setup({ vault = dir, machine = "test", ask_about_folders = false, build = false }), "setup")
   T.ok(require("den.state").wait(10000), "the vault loads")
 end
 

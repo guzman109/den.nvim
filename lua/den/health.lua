@@ -9,9 +9,17 @@ function M.check()
   local mod, why = native.get()
   if mod then
     h.ok("engine loaded (version " .. mod.version() .. ")")
+    if native.stale() then
+      h.warn("the engine is older than the code", { "Run :Den build, then restart Neovim" })
+    end
   else
-    h.error("engine not built", { "Run :Den build (needs cargo)", tostring(why) })
+    h.error("engine not built", { "Run :Den build (needs Rust: https://rustup.rs)", tostring(why) })
     return
+  end
+  if native.cargo() then
+    h.ok("cargo: " .. native.cargo())
+  else
+    h.warn("cargo not found; Den cannot rebuild its engine after an update", { "Install Rust: https://rustup.rs" })
   end
 
   local state = require("den.state")

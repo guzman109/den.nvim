@@ -52,6 +52,7 @@ finished. Milestones and exit criteria are in [PLAN.md](PLAN.md).
 - [ ] Create the GitHub repository, push, and tag the first release #release
 
 - [x] Engine as a Lua module (`require("den_native")`); `:Den build` / `scripts/build-nvim.sh` builds it #nvim @done(2026-09-24)
+- [x] The engine builds itself with cargo on first start and after updates (download only without Rust); starts with no restart #nvim @done(2026-09-25)
 - [x] `:Den <sub>` commands and a Lua API #nvim @done(2026-09-24)
 - [x] Background thread + pipe wake-up for vault loading #nvim @done(2026-09-24)
 - [x] Tasks screen `den://tasks`: this project ↔ all projects (`<Tab>`); `s p x - a e m o f g?` #nvim @done(2026-09-24)
