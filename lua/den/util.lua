@@ -114,6 +114,18 @@ function M.age(seconds)
   return math.floor(seconds / (30 * 86400)) .. "mo"
 end
 
+--- "2026-09-24T23:25:39Z" (UTC) → os.time value, or nil.
+function M.from_iso(s)
+  local y, mo, d, h, mi, se = tostring(s or ""):match("^(%d+)%-(%d+)%-(%d+)T(%d+):(%d+):(%d+)")
+  if not y then
+    return nil
+  end
+  local t = os.time({ year = tonumber(y), month = tonumber(mo), day = tonumber(d), hour = tonumber(h), min = tonumber(mi), sec = tonumber(se), isdst = false })
+  -- os.time read that as local time; shift by the zone's offset at that moment.
+  local offset = os.time(os.date("*t", t)) - os.time(os.date("!*t", t))
+  return t + offset
+end
+
 --- A task row's reference for the engine.
 function M.ref(row)
   return { path = row.path, line = row.line, raw = row.raw }

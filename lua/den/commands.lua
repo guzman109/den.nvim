@@ -90,6 +90,25 @@ M.subcommands = {
       end
     end
   end),
+  review = needs_vault(function(args)
+    require("den.screens.review").open({ all = args[1] == "all" })
+  end),
+  focus = needs_vault(function()
+    require("den.focus").toggle()
+  end),
+  ["break"] = needs_vault(function()
+    require("den.nudges").enter()
+  end),
+  nudges = needs_vault(function(args)
+    local nudges = require("den.nudges")
+    if args[1] == "off" then
+      nudges.off()
+    elseif args[1] == "on" then
+      nudges.on()
+    else
+      vim.notify("Den: break reminders are " .. nudges.describe())
+    end
+  end),
   sync = needs_vault(function(args)
     require("den.sync").command(args)
   end),
@@ -122,7 +141,12 @@ function M.complete(arglead, cmdline)
       return vim.startswith(n, arglead)
     end, names)
   end
-  if words[2] == "tasks" then
+  if words[2] == "nudges" then
+    return vim.tbl_filter(function(n)
+      return vim.startswith(n, arglead)
+    end, { "on", "off" })
+  end
+  if words[2] == "tasks" or words[2] == "review" then
     return vim.tbl_filter(function(n)
       return vim.startswith(n, arglead)
     end, { "all" })

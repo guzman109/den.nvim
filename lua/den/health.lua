@@ -67,6 +67,27 @@ function M.check()
     end
   end
 
+  if state.ready then
+    h.start("Den nudges and images")
+    local config = state.info.config
+    h.info("break reminders are " .. require("den.nudges").describe())
+    if config.location then
+      local sun = native.call("sun")
+      if sun and sun.set then
+        h.ok("sunset today at " .. os.date("%H:%M", require("den.util").from_iso(sun.set)))
+      else
+        h.info("no sunset today at this location")
+      end
+    else
+      h.info("no location set, so no sunset nudges", { "Add `location: { lat: …, lon: … }` to the config" })
+    end
+    if require("den.kitty").enabled() then
+      h.ok("charts and focus rings are drawn as images (kitty)")
+    else
+      h.info("charts are drawn with block characters (images need kitty, termguicolors, no tmux)")
+    end
+  end
+
   h.start("Den companions")
   for _, dep in ipairs({
     { "markview", "draws [/], [-], #tags and frontmatter in notes" },

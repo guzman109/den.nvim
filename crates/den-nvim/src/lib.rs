@@ -9,6 +9,8 @@
 //! Every function returns plain data (tables, strings, numbers) or raises a
 //! Lua error with a message meant for a person.
 
+mod charts;
+
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write as _;
 use std::os::fd::IntoRawFd;
@@ -874,6 +876,246 @@ fn plan_resolve(lua: &Lua, (path, choices): (String, Vec<String>)) -> LuaResult<
     })
 }
 
+fn system_tz() -> jiff::tz::TimeZone {
+    jiff::tz::TimeZone::system()
+}
+
+/// The Review screen's numbers for a project, or for everything.
+fn review(lua: &Lua, project: Option<String>) -> LuaResult<LuaValue> {
+    with(|e| {
+        let vault = e.vault()?;
+        let log = e
+            .log
+            .as_ref()
+            .ok_or_else(|| LuaError::runtime("Den is still loading the timer log"))?;
+        let lines = (!e.sync.ages.is_empty()).then_some(&e.sync.ages);
+        let now = jiff::Zoned::now();
+        out(
+            lua,
+            &vault.review(
+                &scope(project),
+                log,
+                now.date(),
+                now.timestamp(),
+                &system_tz(),
+                lines,
+            ),
+        )
+    })
+}
+
+/// What happened on a day, for the journal page.
+fn day_facts(lua: &Lua, date: Option<String>) -> LuaResult<LuaValue> {
+    let date = parse_date(date)?;
+    with(|e| {
+        let vault = e.vault()?;
+        let log = e
+            .log
+            .as_ref()
+            .ok_or_else(|| LuaError::runtime("Den is still loading the timer log"))?;
+        out(
+            lua,
+            &vault.day_facts(date, log, Timestamp::now(), &system_tz()),
+        )
+    })
+}
+
+/// Today's sunrise and sunset at the configured location.
+fn sun(lua: &Lua, _: ()) -> LuaResult<LuaValue> {
+    with(|e| {
+        let Some(loc) = e.config.location else {
+            return Ok(LuaValue::Nil);
+        };
+        #[derive(Serialize)]
+        struct Out {
+            rise: Option<Timestamp>,
+            set: Option<Timestamp>,
+        }
+        let (rise, set) = match den_core::sun::day(today(), loc.lat, loc.lon) {
+            den_core::sun::SunDay::Normal { rise, set } => (Some(rise), Some(set)),
+            _ => (None, None),
+        };
+        out(lua, &Out { rise, set })
+    })
+}
+
+#[derive(serde::Deserialize)]
+struct NudgeInput {
+    activity: den_core::nudge::Activity,
+    #[serde(default)]
+    answers: den_core::nudge::Answers,
+    uid: u32,
+    back_on: Option<String>,
+}
+
+fn off_state(uid: u32, back_on: Option<&str>) -> Option<Option<jiff::civil::Date>> {
+    den_core::nudge::read_seal(&den_core::nudge::seal_path(uid), 0, back_on.map(Path::new))
+}
+
+/// Whether to nudge now: `nil`, or what to say.
+fn nudge_check(lua: &Lua, input: LuaValue) -> LuaResult<LuaValue> {
+    let input: NudgeInput = lua.from_value(input)?;
+    with(|e| {
+        let now = Timestamp::now();
+        let today = today();
+        let sunset = e
+            .config
+            .location
+            .and_then(|loc| den_core::sun::sunset(today, loc.lat, loc.lon));
+        let (start, _) = den_core::review::day_bounds(today, &system_tz());
+        let walked = e
+            .log
+            .as_ref()
+            .is_some_and(|log| log.walks(now).iter().any(|(_, end)| *end > start));
+        let off = off_state(input.uid, input.back_on.as_deref());
+        let nudge = den_core::nudge::check(
+            now,
+            today,
+            &input.activity,
+            &input.answers,
+            off,
+            &e.config.nudges,
+            sunset,
+            walked,
+        );
+        out(lua, &nudge)
+    })
+}
+
+/// Whether nudges are off, and until when: `{ off = false }`, or
+/// `{ off = true, until = "2026-10-01" }` (no `until`: until turned back on).
+fn nudges_state(lua: &Lua, (uid, back_on): (u32, Option<String>)) -> LuaResult<LuaValue> {
+    #[derive(Serialize)]
+    struct Out {
+        off: bool,
+        until: Option<jiff::civil::Date>,
+        seal: String,
+    }
+    let state = off_state(uid, back_on.as_deref());
+    let today = today();
+    let off = match state {
+        Some(None) => true,
+        Some(Some(until)) => until >= today,
+        None => false,
+    };
+    out(
+        lua,
+        &Out {
+            off,
+            until: state.flatten(),
+            seal: den_core::nudge::seal_path(uid).display().to_string(),
+        },
+    )
+}
+
+/// What the person sees on the way to turning nudges off, and the root
+/// command that seals it once the operating system has checked it is them.
+fn nudges_off_plan(lua: &Lua, (uid, until): (u32, Option<String>)) -> LuaResult<LuaValue> {
+    let until = match until {
+        Some(d) => Some(
+            d.parse::<jiff::civil::Date>()
+                .map_err(|_| LuaError::runtime(format!("{d} is not a date")))?,
+        ),
+        None => None,
+    };
+    #[derive(Serialize)]
+    struct Out {
+        messages: &'static [&'static str],
+        prompt: &'static str,
+        notice: &'static str,
+        command: String,
+    }
+    out(
+        lua,
+        &Out {
+            messages: den_core::nudge::OFF_MESSAGES,
+            prompt: den_core::nudge::OFF_PROMPT,
+            notice: den_core::nudge::AGENT_NOTICE,
+            command: den_core::nudge::seal_command(uid, until),
+        },
+    )
+}
+
+fn walk_start(_: &Lua, _: ()) -> LuaResult<()> {
+    with(|e| e.log_mut()?.walk_start(Timestamp::now()).map_err(err))
+}
+
+fn walk_end(_: &Lua, _: ()) -> LuaResult<()> {
+    with(|e| e.log_mut()?.walk_end(Timestamp::now()).map_err(err))
+}
+
+/// The focus rings: this session, today against the goal, steps.
+fn focus(lua: &Lua, _: ()) -> LuaResult<LuaValue> {
+    with(|e| {
+        #[derive(Serialize)]
+        struct Out {
+            session: i64,
+            session_goal: i64,
+            today: i64,
+            today_goal: i64,
+            steps: Option<u32>,
+            steps_goal: u32,
+            task: Option<String>,
+        }
+        let now = jiff::Zoned::now();
+        let (start, end) = den_core::review::day_bounds(now.date(), &system_tz());
+        let (session, task, today) = match e.log.as_ref() {
+            Some(log) => {
+                let running = log.running();
+                let session = running
+                    .as_ref()
+                    .map_or(0, |r| now.timestamp().as_second() - r.since.as_second());
+                let today: i64 = log
+                    .seconds_by_file(start, end, now.timestamp())
+                    .values()
+                    .sum();
+                (session, running.map(|r| r.task), today)
+            }
+            None => (0, None, 0),
+        };
+        out(
+            lua,
+            &Out {
+                session,
+                session_goal: i64::from(e.config.focus.session_minutes) * 60,
+                today,
+                today_goal: i64::from(e.config.focus.daily_goal_minutes) * 60,
+                steps: None,
+                steps_goal: e.config.focus.steps_goal,
+                task,
+            },
+        )
+    })
+}
+
+#[derive(serde::Deserialize)]
+struct ChartData {
+    #[serde(default)]
+    values: Vec<f64>,
+    #[serde(default)]
+    days: usize,
+    /// Fractions for the rings, outside in; a negative one means no data.
+    #[serde(default)]
+    rings: Vec<f64>,
+}
+
+/// A chart as PNG bytes: `kind` is "bars", "burndown" or "rings".
+fn chart_png(lua: &Lua, (kind, data, style): (String, LuaValue, LuaValue)) -> LuaResult<LuaString> {
+    let data: ChartData = lua.from_value(data)?;
+    let style: charts::Style = lua.from_value(style)?;
+    let svg = match kind.as_str() {
+        "bars" => charts::bars(&data.values, &style),
+        "burndown" => charts::burndown(&data.values, data.days, &style),
+        "rings" => {
+            let r = |i: usize| data.rings.get(i).copied().filter(|f| *f >= 0.0);
+            charts::rings([r(0), r(1), r(2)], &style)
+        }
+        other => return Err(LuaError::runtime(format!("unknown chart {other}"))),
+    };
+    let bytes = charts::png(&svg, style.width, style.height).map_err(LuaError::runtime)?;
+    lua.create_string(&bytes)
+}
+
 fn config(lua: &Lua, _: ()) -> LuaResult<LuaValue> {
     with(|e| out(lua, &e.config))
 }
@@ -932,5 +1174,15 @@ fn den_native(lua: &Lua) -> LuaResult<LuaTable> {
     m.set("captured_at", lua.create_function(captured_at)?)?;
     m.set("conflicts", lua.create_function(conflicts)?)?;
     m.set("plan_resolve", lua.create_function(plan_resolve)?)?;
+    m.set("review", lua.create_function(review)?)?;
+    m.set("day_facts", lua.create_function(day_facts)?)?;
+    m.set("sun", lua.create_function(sun)?)?;
+    m.set("nudge_check", lua.create_function(nudge_check)?)?;
+    m.set("nudges_state", lua.create_function(nudges_state)?)?;
+    m.set("nudges_off_plan", lua.create_function(nudges_off_plan)?)?;
+    m.set("walk_start", lua.create_function(walk_start)?)?;
+    m.set("walk_end", lua.create_function(walk_end)?)?;
+    m.set("focus", lua.create_function(focus)?)?;
+    m.set("chart_png", lua.create_function(chart_png)?)?;
     Ok(m)
 }

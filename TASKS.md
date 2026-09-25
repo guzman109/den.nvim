@@ -81,12 +81,14 @@ finished. Milestones and exit criteria are in [PLAN.md](PLAN.md).
 
 ## M6 · Review, journal, nudges
 
-- [ ] Review screen with block-character charts #review
-- [ ] Charts and focus rings as images through kitty (resvg), text fallback #review
-- [ ] Journal page from template with the day's facts as virtual lines #journal
-- [ ] One late-day journal line in the statusline #journal
-- [ ] Break nudge: chair time, sunset, `w z q` #nudges
-- [ ] Nudges off: fingerprint / password only, no agent tool, rotating messages #nudges
+- [x] Review screen with block-character charts #review @done(2026-09-24)
+- [x] Charts and focus rings as images through kitty (resvg), text fallback #review @done(2026-09-24)
+- [x] Journal page from template with the day's facts as virtual lines #journal @done(2026-09-24)
+- [x] One late-day journal line in the statusline #journal @done(2026-09-24)
+- [x] Break nudge: chair time, sunset, `w z q` #nudges @done(2026-09-24)
+- [x] Nudges off: OS password dialog writes a root-owned seal, no agent tool, rotating messages #nudges @done(2026-09-24)
+- [ ] Look at the kitty images in a real kitty window (headless tests cannot) #review
+- [ ] Nudges off: add a fingerprint / YubiKey signature once den-agent exists #nudges
 
 ## M7 · Locking
 
@@ -114,6 +116,6 @@ finished. Milestones and exit criteria are in [PLAN.md](PLAN.md).
 ## Spikes
 
 - [ ] Does iPhone step data reach the Mac through HealthKit? #spike
-- [ ] kitty image placement: snacks.nvim image module or Den's own code #spike
+- [x] kitty image placement: snacks.nvim image module or Den's own code #spike @done(2026-09-24)
 - [ ] Dioxus native maturity before M8 #spike
 - [ ] Which statusline plugins to support first #spike

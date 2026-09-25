@@ -24,7 +24,7 @@ pub struct ProjectRef {
 }
 
 impl ProjectRef {
-    fn of(p: Project<'_>) -> ProjectRef {
+    pub(crate) fn of(p: Project<'_>) -> ProjectRef {
         ProjectRef {
             name: p.name().to_string(),
             title: p.title(),
@@ -128,7 +128,7 @@ impl Vault {
 
     /// The documents a scope covers, excluding archived projects (unless the
     /// scope names one) and templates.
-    fn scoped_docs(&self, scope: &Scope) -> Vec<&Doc> {
+    pub(crate) fn scoped_docs(&self, scope: &Scope) -> Vec<&Doc> {
         self.docs()
             .filter(|d| d.kind != Kind::Template && !d.locked)
             .filter(|d| match scope {
@@ -147,7 +147,7 @@ impl Vault {
             .collect()
     }
 
-    fn scoped_projects(&self, scope: &Scope) -> Vec<Project<'_>> {
+    pub(crate) fn scoped_projects(&self, scope: &Scope) -> Vec<Project<'_>> {
         let mut projects: Vec<Project<'_>> = self
             .projects()
             .filter(|p| !p.doc.locked)

@@ -3,7 +3,10 @@
 --   require("den").setup({
 --     vault = "~/Notes/den",      -- optional; else ~/.config/den/config.yaml
 --     ask_about_folders = true,   -- ask once about unknown code folders
+--     images = true,              -- charts and focus rings as images in kitty
 --   })
+--
+-- Break nudges have no option here, on purpose: see lua/den/nudges.lua.
 --
 -- Den adds no key mappings. Everything is under :Den, and the Lua API below
 -- is there to map as you like.
@@ -29,6 +32,8 @@ function M.setup(opts)
   require("den.autocmds").setup(M.options)
   require("den.statusline").setup()
   require("den.sync").setup()
+  require("den.journal").setup()
+  require("den.nudges").setup()
   return true
 end
 

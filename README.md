@@ -88,6 +88,10 @@ Den adds no key mappings. Everything is under `:Den`:
 | `:Den project [new]` | link this folder to a project, or create one |
 | `:Den timer [stop]` | what is being timed, or stop it |
 | `:Den sync` | sync now (asks for a passphrase if needed), or settle conflicts |
+| `:Den review [all]` | finished work, time this week, progress, burndowns |
+| `:Den focus` | the focus rings in a corner window |
+| `:Den break` | answer a break nudge: `w` walk · `z` snooze · `q` not today |
+| `:Den nudges [on\|off]` | whether break reminders are on; turning them off asks you, and then your OS |
 | `:Den build` · `:Den health` | build the engine · `:checkhealth den` |
 
 Map what you use, for example:
@@ -187,7 +191,13 @@ focus: { session_minutes: 50, daily_goal_minutes: 240, steps_goal: 10000 }
 sync: { enabled: true, commit_after_seconds: 30, every_minutes: 5 }
 ```
 
-Turning break nudges off is not a setting; see PLAN.md.
+`location` gives sunset nudges. Turning break nudges off is not a setting:
+run `:Den nudges off`, answer three pleading questions, and confirm with your
+own password in the operating system's dialog. `:Den nudges on` brings them
+back with no questions.
+
+In kitty, charts and the focus rings are images; set
+`require("den").setup({ images = false })` for block characters instead.
 
 ## Development
 

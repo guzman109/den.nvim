@@ -213,13 +213,23 @@ to a pipe Neovim is watching; Lua wakes up and collects it.
   streak counters.
 
 ### Break nudges
-- After a long stretch in the chair, a small window that does not take focus:
-  time in the chair, time until sunset, steps if available. `w` walk (counts
-  as a break), `z` snooze 30 min, `q` not today.
-- Sunset is calculated offline from a configured location.
-- **Turning nudges off is for humans only.** No agent tool for it, not stored
-  in an editable config file, and `:Den nudges off` asks for a fingerprint
-  (or password / YubiKey) behind a dialog with rotating guilt-trip messages.
+- After a long stretch in the chair (90 min), or with sunset under an hour
+  away on a day without a walk, a small window that does not take focus:
+  time in the chair, time until sunset, steps if available. `:Den break`
+  steps into it: `w` walk (counts as a break), `z` snooze 30 min, `q` not
+  today. The statusline says so too.
+- Chair time comes from key presses (when, never which); a gap of 5 minutes
+  is a break on its own.
+- Sunset is calculated offline from a configured location (the standard
+  sunrise equation, checked against NOAA's calculator).
+- **Turning nudges off is for humans only.** No agent tool for it, no setting
+  (a `nudges.enabled` in the config is an error that says so, addressed to
+  agents too). `:Den nudges off` asks three times with guilt-trip messages,
+  then the operating system's own password dialog (macOS administrator
+  prompt, or polkit on Linux) writes a root-owned seal. Den trusts "off" only
+  from a root-owned file in a root-owned folder, which software running as
+  the person cannot create. `:Den nudges on` needs no password. M7 adds a
+  fingerprint / YubiKey signature on top.
 
 ### Locking (M7)
 - Lock individual notes or projects; a folder can make new notes locked.
@@ -267,9 +277,7 @@ to a pipe Neovim is watching; Lua wakes up and collects it.
 | `notify` | watching the vault for outside changes |
 | `thiserror` | error types |
 | `gethostname` | the default machine name for the timer log |
-| `sunrise` | sunset time, offline |
-| `resvg` | charts and rings drawn as SVG, turned into images |
-| `base64` | kitty image protocol |
+| `resvg` (no default features: shapes only, no fonts) | charts and rings drawn as SVG, turned into images |
 | `mlua` (`module`, `luajit`, `serialize`) | the engine inside Neovim |
 | `clap` | the `den` command |
 | `rmpv` | the askpass helper talking to Neovim |

@@ -28,6 +28,9 @@ M.groups = {
   DenStatusOverdue = { link = "DiagnosticError" },
   DenStatusDone = { link = "DiagnosticOk" },
   DenSyncProblem = { link = "DiagnosticError" },
+  DenChart = { link = "Special" },
+  DenFact = { link = "Comment" },
+  DenFactHead = { link = "Title" },
 }
 
 function M.setup()

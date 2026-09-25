@@ -14,6 +14,48 @@ next. A change to [PLAN.md](PLAN.md) always gets an entry here.
 
 ---
 
+## 2026-09-24 · Build: M6, review, journal, nudges
+
+**Did**
+- den-core `review`: finished per day (14 days), time per day this week and
+  by project, progress per project, burndowns for projects with an end date
+  (open tasks count from their first commit when history is known), and a
+  day's facts for the journal.
+- den-core `sun`: sunrise and sunset offline, within seconds of NOAA's
+  calculator; polar days have none.
+- den-core `nudge`: when to nudge (chair time, sunset without a walk),
+  answers (snooze, not today), rotating messages, and the "off" seal that
+  only counts when root owns it and its folder.
+- The Review screen (`:Den review`), focus rings (`:Den focus`, a corner
+  window redrawn every second), day facts under a journal page's title, the
+  late-day journal line, the nudge window and `:Den break`,
+  `:Den nudges off|on`.
+- Images in kitty: den-nvim draws charts as shape-only SVG with resvg (no
+  fonts) and Lua places them with kitty's Unicode placeholders, so they are
+  ordinary buffer text to Neovim. Block-character charts everywhere else.
+  Looked at the PNGs; the text screens were checked by eye.
+- Tests: 4 review, 2 sun, 7 nudge (including seal ownership and
+  permissions), 1 config, 2 chart renders, 10 Neovim.
+
+**Decided**
+- No `sunrise` crate: it brings `chrono` next to `jiff` for 40 lines of
+  arithmetic. No `base64` crate: Neovim has `vim.base64`.
+- Den's own kitty code rather than snacks.nvim (spike closed): about 150
+  lines, no dependency, and it fits Den's screens.
+- "Nudges off" is a root-owned seal written behind the operating system's
+  password dialog (macOS `osascript … with administrator privileges`, Linux
+  `pkexec`). It only runs fixed commands as root, never Den's own binary,
+  which the person can overwrite.
+- The journal line is the quietest insight: it shows only when fewer urgent
+  things compete for the two places.
+
+**Not yet:** steps (HealthKit spike), a real look in kitty, and a
+fingerprint signature on the seal (M7).
+
+**Next:** prebuilt downloads (M3 leftover), then M7, locking.
+
+---
+
 ## 2026-09-24 · Build: M5, sync
 
 **Did**

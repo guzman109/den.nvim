@@ -4,6 +4,8 @@
 --   - `@due(...)` in its colour, with "in 4 days" after it on open tasks
 --   - `@done(...)` dimmed
 --   - under a project's title, the notes that belong to it
+--   - under a journal page's title, the day's facts: time per task, what
+--     was finished, walks (never written into the page)
 --
 -- markview (or any renderer) draws everything else.
 
@@ -86,6 +88,14 @@ function M.decorate(buf)
     end
   end
 
+  local day = rel:match("^daily/(%d%d%d%d%-%d%d%-%d%d)%.md$")
+  if day and title_line then
+    local facts = M.day_facts(day)
+    if #facts > 0 then
+      vim.api.nvim_buf_set_extmark(buf, ns, title_line - 1, 0, { virt_lines = facts })
+    end
+  end
+
   local name = rel:match("^projects/([^/]+)%.md$")
   if name and title_line then
     local p = native.call("project", name)
@@ -100,6 +110,48 @@ function M.decorate(buf)
       })
     end
   end
+end
+
+--- The day's facts as virtual lines: `{ { {text, hl}, … }, … }`.
+function M.day_facts(date)
+  local f = native.call("day_facts", date)
+  if not f then
+    return {}
+  end
+  local out = {}
+  local function line(label, text)
+    table.insert(out, { { "  " .. label .. "  ", "DenFactHead" }, { text, "DenFact" } })
+  end
+  if f.total_seconds > 0 then
+    local parts = {}
+    for i, w in ipairs(f.worked) do
+      if i > 4 then
+        table.insert(parts, ("%d more"):format(#f.worked - 4))
+        break
+      end
+      table.insert(parts, ("%s %s"):format(w.task, util.duration(w.seconds)))
+    end
+    line("worked  " .. util.duration(f.total_seconds), table.concat(parts, " · "))
+  end
+  if #f.finished > 0 then
+    local titles = {}
+    for i, t in ipairs(f.finished) do
+      if i > 5 then
+        table.insert(titles, ("%d more"):format(#f.finished - 5))
+        break
+      end
+      table.insert(titles, t.title)
+    end
+    line("finished " .. #f.finished, table.concat(titles, " · "))
+  end
+  if f.walks > 0 then
+    line("walked", util.duration(f.walk_seconds) .. (f.walks > 1 and (" in " .. f.walks .. " walks") or ""))
+  end
+  if #out > 0 then
+    table.insert(out, 1, { { "", "DenFact" } })
+    table.insert(out, { { "", "DenFact" } })
+  end
+  return out
 end
 
 --- Redraws soon, once, however many edits arrive meanwhile.

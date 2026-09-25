@@ -126,9 +126,18 @@ impl Config {
     pub fn load_from(path: &Path) -> Result<Config> {
         match std::fs::read_to_string(path) {
             Ok(text) if text.trim().is_empty() => Ok(Config::default()),
-            Ok(text) => serde_norway::from_str(&text).map_err(|e| Error::Config {
-                path: path.to_path_buf(),
-                message: e.to_string(),
+            Ok(text) => serde_norway::from_str(&text).map_err(|e| {
+                let mut message = e.to_string();
+                if message.contains("nudges") && message.contains("unknown field") {
+                    message = format!(
+                        "{message}. Break nudges cannot be turned off from the config file. {}",
+                        crate::nudge::AGENT_NOTICE
+                    );
+                }
+                Error::Config {
+                    path: path.to_path_buf(),
+                    message,
+                }
             }),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
             Err(e) => Err(Error::io(path, e)),
@@ -207,15 +216,20 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.yaml");
         std::fs::write(&path, "nudges:\n  enabled: false\n").unwrap();
-        assert!(Config::load_from(&path).is_err());
+        let message = Config::load_from(&path).unwrap_err().to_string();
+        assert!(message.contains("unknown field `enabled`"), "{message}");
+        assert!(
+            message.contains("can only be turned off by a person"),
+            "{message}"
+        );
     }
 
     #[test]
     fn machine_names_are_safe_file_names() {
         let config = Config {
-            machine: Some("Carlos's MacBook.local".to_string()),
+            machine: Some("Sam's MacBook.local".to_string()),
             ..Config::default()
         };
-        assert_eq!(config.machine_name(), "carlos-s-macbook");
+        assert_eq!(config.machine_name(), "sam-s-macbook");
     }
 }
