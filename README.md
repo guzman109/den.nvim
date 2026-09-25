@@ -12,7 +12,7 @@ The plan, decisions and progress live in [PLAN.md](PLAN.md),
 
 ## Install
 
-Neovim 0.11 or later (LuaJIT) and a Rust toolchain.
+Neovim 0.11 or later (LuaJIT). macOS or Linux, on arm64 or x86_64.
 
 ```lua
 -- Neovim 0.12, built-in package manager
@@ -20,14 +20,18 @@ vim.pack.add({ "https://gitlab.com/cguz109/Den" })
 require("den").setup({ vault = "~/Notes/den" })
 ```
 
-Then build the engine (and the `den` command it uses for passphrase prompts)
-once, and after each update:
+Then install the engine (and the `den` command it uses for passphrase
+prompts) once, and after each update:
 
 ```vim
 :Den build
 ```
 
-or from a shell, in the plugin's folder: `scripts/build-nvim.sh`.
+This downloads the prebuilt engine for the plugin's version, checks it
+against the release's `SHA256SUMS` (and its signature, if the plugin has
+`release/allowed_signers`), and installs it. With no release for your
+machine, or a private project, it builds from source with cargo instead;
+`:Den build source` always does. From a shell: `scripts/build-nvim.sh`.
 
 The `den` command for the shell:
 
@@ -207,3 +211,23 @@ scripts/build-nvim.sh debug && scripts/test-nvim.sh   # Neovim, headless
 ```
 
 Rules for code and docs: [CONVENTIONS.md](CONVENTIONS.md).
+
+### Releasing
+
+Bump `version` in `Cargo.toml` and `lua/den/version.lua` (a test checks they
+match), then push a tag such as `v0.2.0`. CI runs `scripts/package.sh` once
+per platform and publishes the packages with a `SHA256SUMS` file:
+
+- **GitLab** (`.gitlab-ci.yml`): Linux x86_64 and arm64 on the free shared
+  runners, into the package registry. macOS needs a runner tagged `macos`,
+  such as your own Mac with `gitlab-runner`; set the CI variable
+  `DEN_MACOS_RUNNER=yes` once it exists. Without one, run
+  `scripts/package.sh` on the Mac and upload the file yourself.
+- **GitHub** (`.github/workflows/`): macOS and Linux runners, free for public
+  repositories; set `M.url` in `lua/den/download.lua` to
+  `https://github.com/<you>/<repo>/releases/download/v{version}/{file}`.
+
+To sign a release, sign `SHA256SUMS` on your own machine
+(`ssh-keygen -Y sign -n den-release -f <key> SHA256SUMS`), upload the
+`.sig`, and commit `release/allowed_signers` (`den-release <public key>`);
+from then on `:Den build` refuses unsigned or wrongly signed releases.

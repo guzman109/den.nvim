@@ -19,3 +19,6 @@ index.sqlite
 
 # Local tooling (preview servers, agent worktrees).
 /.claude/
+
+# Release packages (scripts/package.sh).
+/dist/

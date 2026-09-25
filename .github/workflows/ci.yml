@@ -1,0 +1,23 @@
+# The same checks as .gitlab-ci.yml, for a copy of Den hosted on GitHub.
+# macOS runners are free for public repositories.
+name: ci
+on: [push, pull_request]
+env:
+  GIT_CONFIG_NOSYSTEM: "1"
+jobs:
+  check:
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: v0.12.5
+      - run: ./scripts/build-nvim.sh && ./scripts/test-nvim.sh

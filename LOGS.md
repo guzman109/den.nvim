@@ -14,6 +14,37 @@ next. A change to [PLAN.md](PLAN.md) always gets an entry here.
 
 ---
 
+## 2026-09-24 · Build: prebuilt engine downloads
+
+**Did**
+- `scripts/package.sh` builds and packs the engine and `den` for the
+  machine it runs on; `scripts/checksums.sh` writes `SHA256SUMS`.
+- `:Den build` downloads the package for the plugin's version, checks the
+  checksum (and an SSH signature when the plugin carries
+  `release/allowed_signers`), installs it, and falls back to cargo.
+- Release CI for GitLab (Linux on shared runners; macOS on an opt-in
+  `macos` runner) and GitHub (macOS and Linux), plus a GitHub copy of the
+  checks. Five Neovim tests over a fake release, including tampered and
+  wrongly signed ones.
+- Built and loaded a real macOS package.
+
+**Found and fixed before it shipped:** the archive recorded the builder's
+account as file owner, and the binaries embedded about 700 source paths
+under the builder's home folder. Archives now store numeric owner 0, and
+builds remap source paths to neutral roots.
+
+**Decided**
+- The owner does not want to pay for hosted macOS runners. GitLab stays
+  free with the owner's Mac as a runner (or a local package and upload);
+  GitHub is free for public repositories. The build is host-neutral so
+  either works; the host is the owner's choice.
+- Signing happens on the owner's machine, never in CI, and is optional.
+- Downloads need a public project; a private one builds from source.
+
+**Next:** M7, locking.
+
+---
+
 ## 2026-09-24 · Build: M6, review, journal, nudges
 
 **Did**

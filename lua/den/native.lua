@@ -43,8 +43,30 @@ function M.call(name, ...)
   return nil, (tostring(result):gsub("^runtime error: ", ""))
 end
 
---- Builds the engine with cargo, then reloads nothing: restart Neovim after.
-function M.build(on_done)
+--- Installs the engine: the prebuilt release for this version when there
+--- is one, else a build with cargo (`from_source` skips the download).
+--- Restart Neovim afterwards to load it.
+function M.build(on_done, from_source)
+  if not from_source then
+    vim.notify("Den: downloading the engine…")
+    require("den.download").install({}, function(ok, message)
+      if ok then
+        vim.notify("Den: " .. message .. ". Restart Neovim to load it.")
+        if on_done then
+          on_done(true)
+        end
+      elseif vim.fn.executable("cargo") == 1 then
+        vim.notify("Den: " .. message .. "; building from source instead")
+        M.build(on_done, true)
+      else
+        vim.notify("Den: " .. message .. ", and cargo is not installed to build it", vim.log.levels.ERROR)
+        if on_done then
+          on_done(false)
+        end
+      end
+    end)
+    return
+  end
   local script = M.root .. "/scripts/build-nvim.sh"
   vim.notify("Den: building the engine…")
   vim.system({ "sh", script }, { cwd = M.root, text = true }, function(res)

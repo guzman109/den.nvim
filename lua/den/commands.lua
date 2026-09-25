@@ -112,8 +112,8 @@ M.subcommands = {
   sync = needs_vault(function(args)
     require("den.sync").command(args)
   end),
-  build = function()
-    require("den.native").build()
+  build = function(args)
+    require("den.native").build(nil, args[1] == "source")
   end,
   health = function()
     vim.cmd("checkhealth den")
@@ -156,6 +156,9 @@ function M.complete(arglead, cmdline)
   end
   if words[2] == "sync" then
     return { "continue" }
+  end
+  if words[2] == "build" then
+    return { "source" }
   end
   return {}
 end

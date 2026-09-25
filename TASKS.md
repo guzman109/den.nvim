@@ -44,7 +44,8 @@ finished. Milestones and exit criteria are in [PLAN.md](PLAN.md).
 
 ## M3 · Neovim plugin
 
-- [ ] Prebuilt engine downloads for people without cargo (needs release hosting) #nvim
+- [x] Prebuilt engine downloads: `scripts/package.sh`, CI for GitLab and GitHub, `:Den build` checks SHA256SUMS and an optional SSH signature #nvim @done(2026-09-24)
+- [ ] Choose the host (GitLab with a Mac runner, or GitHub) and push the first tag #release
 
 - [x] Engine as a Lua module (`require("den_native")`); `:Den build` / `scripts/build-nvim.sh` builds it #nvim @done(2026-09-24)
 - [x] `:Den <sub>` commands and a Lua API #nvim @done(2026-09-24)
