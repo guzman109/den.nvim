@@ -1,0 +1,74 @@
+---
+source: crates/den-core/tests/vault.rs
+expression: "vault.inbox_view(&Scope::All)"
+---
+groups:
+  - project:
+      name: haste
+      title: haste
+    label: haste
+    tasks:
+      - path: projects/haste.md
+        line: 9
+        raw: "- [ ] Call the printer about the proofs"
+        text: Call the printer about the proofs
+        title: Call the printer about the proofs
+        state: open
+        tags: []
+        due: ~
+        done: ~
+        section: Inbox
+        project:
+          name: haste
+          title: haste
+        source: haste
+      - path: projects/haste.md
+        line: 10
+        raw: "- [ ] Look up kitty's image placeholders #research"
+        text: "Look up kitty's image placeholders #research"
+        title: "Look up kitty's image placeholders"
+        state: open
+        tags:
+          - research
+        due: ~
+        done: ~
+        section: Inbox
+        project:
+          name: haste
+          title: haste
+        source: haste
+  - project:
+      name: website
+      title: Personal website
+    label: Personal website
+    tasks:
+      - path: projects/website.md
+        line: 12
+        raw: "- [ ] Find the old logo files"
+        text: Find the old logo files
+        title: Find the old logo files
+        state: open
+        tags: []
+        due: ~
+        done: ~
+        section: Inbox
+        project:
+          name: website
+          title: Personal website
+        source: Personal website
+  - project: ~
+    label: no project
+    tasks:
+      - path: inbox.md
+        line: 2
+        raw: "- [ ] Idea: a lamp for the reference shelf"
+        text: "Idea: a lamp for the reference shelf"
+        title: "Idea: a lamp for the reference shelf"
+        state: open
+        tags: []
+        due: ~
+        done: ~
+        section: ~
+        project: ~
+        source: Inbox
+count: 4

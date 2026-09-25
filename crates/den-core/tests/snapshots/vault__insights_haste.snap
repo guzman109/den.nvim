@@ -1,0 +1,26 @@
+---
+source: crates/den-core/tests/vault.rs
+expression: "vault.insights(&Scope::Project(\"haste\".into()), TODAY)"
+---
+- kind: due_today
+  count: 1
+  first:
+    path: projects/haste.md
+    line: 15
+    raw: "- [ ] Profile the first frame #rust @due(2026-09-24)"
+    text: "Profile the first frame #rust @due(2026-09-24)"
+    title: Profile the first frame
+    state: open
+    tags:
+      - rust
+    due: 2026-09-24
+    done: ~
+    section: Next actions
+    project:
+      name: haste
+      title: haste
+    source: haste
+- kind: inbox
+  count: 2
+- kind: done_today
+  count: 1

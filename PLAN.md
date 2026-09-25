@@ -57,6 +57,7 @@ History of decisions: [LOGS.md](LOGS.md) · Bugs: [BUGS.md](BUGS.md)
   notes/<name>.md               everything else; joins a project with `project:`
   daily/<YYYY-MM-DD>.md         journal, one page per day (locked by default, M7)
   templates/daily.md            the journal template, editable
+  inbox.md                      captures made outside any project
   .den/log/<machine>.jsonl      timer sessions, one append-only file per machine
   .den/index.sqlite             (later) search cache; gitignored, rebuilt anytime
 ```
@@ -251,6 +252,7 @@ to a pipe Neovim is watching; Lua wakes up and collects it.
 | `gix` | git reads: status, ahead/behind, history, blame |
 | `notify` | watching the vault for outside changes |
 | `thiserror` | error types |
+| `gethostname` | the default machine name for the timer log |
 | `sunrise` | sunset time, offline |
 | `resvg` | charts and rings drawn as SVG, turned into images |
 | `base64` | kitty image protocol |

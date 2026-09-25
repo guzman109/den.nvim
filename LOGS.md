@@ -14,6 +14,45 @@ next. A change to [PLAN.md](PLAN.md) always gets an entry here.
 
 ---
 
+## 2026-09-24 · Build: M0–M2, the engine
+
+**Did**
+- Removed the old app (crates, demo, mockup, packaging, bundled fonts); kept
+  `assets/icons`.
+- New workspace: `den-core`, `den-nvim`, `den-cli`; toolchain pinned to
+  1.98.1; workspace lints; GitLab CI (Linux only — shared runners have no
+  macOS, so macOS runs locally).
+- Fixture vault in `tests/vault` covering every format rule and the edge
+  cases (fences, bad dates, prose before the title, a field-looking sentence,
+  CRLF, nested tasks, unknown marks, a locked note).
+- den-core: parser, frontmatter, vault (overlays, worktree-aware project
+  lookup, problems report), queries (Tasks, Inbox, insights, pace), edit
+  planning (state, edit, capture, add, move with children, new project, link,
+  new note, journal page), atomic writer, timer log, config, file watcher.
+  72 tests, snapshots reviewed by hand.
+
+**Numbers:** a synthetic 5,000-file vault loads in ~118 ms (release build).
+The Tasks view first took 225 ms because every project lookup scanned every
+file; looking projects up by path and grouping notes once brought it to
+6.6 ms.
+
+**Decided**
+- A capture outside any project goes to `inbox.md` at the vault root.
+- Plans carry each file's full text before and after, so Neovim can apply a
+  change to an open buffer instead of the disk.
+- Removing a task's only line from a section also removes the blank line it
+  leaves doubled.
+- New dependency: `gethostname`, for the default machine name in the timer log.
+
+**Found**
+- The owner's global git config signs every commit with an SSH key. Tests now
+  run git with no global config. For M5: Den's background commits will be
+  signed too, so a locked key must pause sync instead of hanging it.
+
+**Next:** M3, the Neovim plugin.
+
+---
+
 ## 2026-09-24 · Design session: Den from scratch
 
 **Did**

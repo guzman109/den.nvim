@@ -1,25 +1,38 @@
 //! The Den engine.
 //!
-//! Den's store is plain Markdown the user owns — git-diffable, editable in any
-//! editor, readable without Den. This crate is the single implementation of
-//! everything that reads or changes it: the parser, the index, and the rules
-//! for mutating a task line.
+//! Den's store is a folder of Markdown files in one git repository. This crate
+//! is the only code that reads or changes it: it parses the files, answers
+//! questions about them, plans edits, and writes those edits to disk without
+//! ever leaving a file half written.
 //!
-//! Both interfaces sit on top of it. The desktop app links it directly, and
-//! den.nvim loads it as a native Lua module. Neither owns any parsing of its
-//! own, which is what stops the two drifting apart — they cannot disagree
-//! about what a task is if there is only one definition of one.
+//! It knows nothing about screens, editors or colours. Every query returns
+//! plain data, and every interface — Neovim, the `den` command, a desktop app,
+//! an agent — draws that data its own way.
 //!
-//! Nothing here knows about a user interface, an editor, or a window.
+//! Changes are planned first and applied second. A plan is a list of
+//! [`Change`]s, each carrying the exact text the file must still contain, so
+//! an interface can apply it to an open editor buffer instead of the disk, and
+//! a file that moved underneath us is refused rather than overwritten.
 
-pub mod date;
-pub mod history;
-pub mod index;
-pub mod metrics;
-pub mod mutate;
+pub mod config;
+pub mod error;
+pub mod frontmatter;
+pub mod ops;
+pub mod parse;
+pub mod query;
+pub mod slug;
+pub mod text;
+pub mod timer;
 pub mod vault;
+pub mod watch;
+pub mod worktree;
+pub mod write;
 
-pub use history::History;
-pub use index::Index;
-pub use metrics::Burndown;
-pub use vault::{Entry, Kind, Status, Task, Vault};
+pub use config::Config;
+pub use error::{Error, Result};
+pub use ops::{Change, Section, TaskRef};
+pub use parse::{State, Task};
+pub use query::{Scope, TaskRow};
+pub use timer::TimerLog;
+pub use vault::{Doc, Kind, Vault};
+pub use write::apply;

@@ -1,0 +1,50 @@
+---
+source: crates/den-core/tests/vault.rs
+expression: "vault.insights(&Scope::All, TODAY)"
+---
+- kind: overdue
+  count: 1
+  first:
+    path: projects/website.md
+    line: 18
+    raw: "- [ ] Gather a few visual references #design @due(2026-09-20)"
+    text: "Gather a few visual references #design @due(2026-09-20)"
+    title: Gather a few visual references
+    state: open
+    tags:
+      - design
+    due: 2026-09-20
+    done: ~
+    section: Next actions
+    project:
+      name: website
+      title: Personal website
+    source: Personal website
+- kind: due_today
+  count: 1
+  first:
+    path: projects/haste.md
+    line: 15
+    raw: "- [ ] Profile the first frame #rust @due(2026-09-24)"
+    text: "Profile the first frame #rust @due(2026-09-24)"
+    title: Profile the first frame
+    state: open
+    tags:
+      - rust
+    due: 2026-09-24
+    done: ~
+    section: Next actions
+    project:
+      name: haste
+      title: haste
+    source: haste
+- kind: behind_pace
+  project:
+    name: website
+    title: Personal website
+  left: 5
+  days: 7
+- kind: inbox
+  count: 4
+- kind: done_today
+  count: 2

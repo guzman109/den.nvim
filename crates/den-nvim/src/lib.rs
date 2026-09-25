@@ -1,1 +1,1 @@
-//! Placeholder; filled in once the engine's query and mutation surface lands.
+//! The Den engine as a Lua module for Neovim.

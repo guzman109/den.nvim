@@ -1,0 +1,41 @@
+# Linux only: GitLab's shared runners have no macOS. macOS is covered by
+# running the same commands locally before pushing.
+
+image: rust:1-bookworm
+
+variables:
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo-home
+  # Tests run git; keep a runner's config from changing what they do.
+  GIT_CONFIG_NOSYSTEM: "1"
+
+cache:
+  key: $CI_JOB_NAME
+  paths:
+    - .cargo-home/registry
+    - target
+
+stages: [check, test]
+
+fmt:
+  stage: check
+  script:
+    - cargo fmt --all --check
+
+clippy:
+  stage: check
+  script:
+    - cargo clippy --workspace --all-targets -- -D warnings
+
+test:
+  stage: test
+  script:
+    - cargo test --workspace
+
+neovim:
+  stage: test
+  script:
+    - curl -fsSL -o nvim.tar.gz https://github.com/neovim/neovim/releases/download/v0.12.5/nvim-linux-x86_64.tar.gz
+    - tar xzf nvim.tar.gz
+    - export PATH="$PWD/nvim-linux-x86_64/bin:$PATH"
+    - ./scripts/build-nvim.sh
+    - ./scripts/test-nvim.sh

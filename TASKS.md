@@ -8,39 +8,39 @@ finished. Milestones and exit criteria are in [PLAN.md](PLAN.md).
 
 ## M0 · Fresh start
 
-- [ ] Create a `rebuild` branch from main #git
-- [ ] Remove the old app: `crates/den-gui`, `crates/den-core`, `crates/den-nvim`, `demo/`, `design/`, `package.py`, `assets/fonts` #cleanup
-- [ ] Decide whether `assets/icons` (the ember bear) stays #decision
-- [ ] New workspace: `crates/den-core`, `crates/den-nvim`, `crates/den-cli`, edition 2024, workspace lints (`clippy -D warnings`) #setup
-- [ ] Pin the toolchain with `rust-toolchain.toml` #setup
-- [ ] GitLab CI: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test` on Linux and macOS #setup
-- [ ] Fixture vault at `tests/vault/` covering every rule in PLAN.md's format table, including edge cases (fences, bad dates, missing title, no frontmatter) #tests
+- [x] Work on a branch (claude/app-design-discussion-96381b) instead of main #git @done(2026-09-24)
+- [x] Remove the old app: `crates/den-gui`, `crates/den-core`, `crates/den-nvim`, `demo/`, `design/`, `package.py`, `assets/fonts` #cleanup @done(2026-09-24)
+- [x] Keep `assets/icons` (the ember bear) #decision @done(2026-09-24)
+- [x] New workspace: `crates/den-core`, `crates/den-nvim`, `crates/den-cli`, edition 2024, workspace lints (`clippy -D warnings`) #setup @done(2026-09-24)
+- [x] Pin the toolchain with `rust-toolchain.toml` #setup @done(2026-09-24)
+- [x] GitLab CI: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test` on Linux (shared runners have no macOS; run locally) #setup @done(2026-09-24)
+- [x] Fixture vault at `tests/vault/` covering every rule in PLAN.md's format table, including edge cases (fences, bad dates, missing title, no frontmatter) #tests @done(2026-09-24)
 
 ## M1 · Engine: read
 
-- [ ] Vault discovery: `projects/`, `notes/`, `daily/`, `templates/` under a configurable root #engine
-- [ ] Frontmatter: parse only the block between the first two `---` lines; keep unknown keys #engine
-- [ ] Title: first `# ` heading, else the file name without `.md` #engine
-- [ ] Fence tracking for ``` and ~~~; nothing inside is parsed #engine
-- [ ] Task lines: bullets, states `[ ] [/] [-] [x]`, `#tag`, `@due`, `@done`; invalid dates reported, not dropped #engine
-- [ ] Record which section each task sits under (Inbox, Next actions, other) #engine
-- [ ] Buffer overlay: accept unsaved buffer text in place of the file on disk #engine
-- [ ] Project ↔ folder: match a directory to `root:`; resolve git worktrees to their main repository #engine
-- [ ] Queries: tasks (one project / all), inbox (one / all), one project, statusline summary #engine
-- [ ] Report unreadable and non-UTF-8 files instead of skipping them silently #engine
-- [ ] Watch the vault with `notify` and reload only changed files #engine
-- [ ] Snapshot tests over the fixture vault with `insta` #tests
-- [ ] Measure load time on a synthetic 5,000-note vault and record it in LOGS.md #tests
+- [x] Vault discovery: `projects/`, `notes/`, `daily/`, `templates/` under a configurable root #engine @done(2026-09-24)
+- [x] Frontmatter: parse only the block between the first two `---` lines; keep unknown keys #engine @done(2026-09-24)
+- [x] Title: first `# ` heading, else the file name without `.md` #engine @done(2026-09-24)
+- [x] Fence tracking for ``` and ~~~; nothing inside is parsed #engine @done(2026-09-24)
+- [x] Task lines: bullets, states `[ ] [/] [-] [x]`, `#tag`, `@due`, `@done`; invalid dates reported, not dropped #engine @done(2026-09-24)
+- [x] Record which section each task sits under (Inbox, Next actions, other) #engine @done(2026-09-24)
+- [x] Buffer overlay: accept unsaved buffer text in place of the file on disk #engine @done(2026-09-24)
+- [x] Project ↔ folder: match a directory to `root:`; resolve git worktrees to their main repository #engine @done(2026-09-24)
+- [x] Queries: tasks (one project / all), inbox (one / all), one project, statusline summary #engine @done(2026-09-24)
+- [x] Report unreadable and non-UTF-8 files instead of skipping them silently #engine @done(2026-09-24)
+- [x] Watch the vault with `notify` and reload only changed files #engine @done(2026-09-24)
+- [x] Snapshot tests over the fixture vault with `insta` #tests @done(2026-09-24)
+- [x] Measure load time on a synthetic 5,000-note vault and record it in LOGS.md #tests @done(2026-09-24)
 
 ## M2 · Engine: write
 
-- [ ] Atomic writer: temp file in the same folder, fsync file and folder, rename, keep permissions, write through symlinks to the real file #engine
-- [ ] Stale check: refuse a write when the file changed since it was read #engine
-- [ ] Refuse files that have unsaved changes in a Neovim buffer #engine
-- [ ] Task operations: capture, start, pause, done (adds `@done`), drop, reopen (removes `@done`) #engine
-- [ ] Move a task to another project or section; Inbox → Next actions #engine
-- [ ] Create: new project with `root:`, link a folder, new note, today's journal page from the template #engine
-- [ ] Byte-exact tests for every operation #tests
+- [x] Atomic writer: temp file in the same folder, fsync file and folder, rename, keep permissions, write through symlinks to the real file #engine @done(2026-09-24)
+- [x] Stale check: refuse a write when the file changed since it was read #engine @done(2026-09-24)
+- [x] Refuse files that have unsaved changes in a Neovim buffer #engine @done(2026-09-24)
+- [x] Task operations: capture, start, pause, done (adds `@done`), drop, reopen (removes `@done`) #engine @done(2026-09-24)
+- [x] Move a task to another project or section; Inbox → Next actions #engine @done(2026-09-24)
+- [x] Create: new project with `root:`, link a folder, new note, today's journal page from the template #engine @done(2026-09-24)
+- [x] Byte-exact tests for every operation #tests @done(2026-09-24)
 
 ## M3 · Neovim plugin
 

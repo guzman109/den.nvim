@@ -1,0 +1,146 @@
+---
+source: crates/den-core/tests/vault.rs
+expression: docs
+---
+- path: daily/2026-09-23.md
+  kind: daily
+  locked: false
+  title: Wednesday 23 September
+  tasks: []
+  tags: []
+  issues: []
+- path: daily/2026-09-24.md
+  kind: daily
+  locked: false
+  title: Thursday 24 September
+  tasks:
+    - "[ ] Profile before touching anything else"
+  tags: []
+  issues: []
+- path: inbox.md
+  kind: inbox
+  locked: false
+  title: Inbox
+  tasks:
+    - "[ ] Idea: a lamp for the reference shelf"
+  tags: []
+  issues: []
+- path: notes/homepage-story.md
+  kind: note
+  locked: false
+  title: Homepage story
+  tasks:
+    - "[ ] Ask two friends to read the draft"
+  tags:
+    - writing
+  issues: []
+- path: notes/kitty-graphics.md
+  kind: note
+  locked: false
+  title: Kitty graphics protocol
+  tasks: []
+  tags:
+    - research
+    - kitty
+  issues: []
+- path: notes/private.md.age
+  kind: note
+  locked: true
+  title: private
+  tasks: []
+  tags: []
+  issues: []
+- path: notes/reading/books.md
+  kind: note
+  locked: false
+  title: Books
+  tasks:
+    - "[ ] Finish \"A Philosophy of Software Design\""
+  tags:
+    - reading
+  issues: []
+- path: projects/edge-cases.md
+  kind: project
+  locked: false
+  title: Edge cases
+  tasks:
+    - "[ ] Plain task"
+    - "[ ] Star bullet"
+    - "[ ] Plus bullet"
+    - "[x] Capital X done"
+    - "[ ] Bad date @due(2026-02-30)"
+    - "[ ] Tag in the #middle of a sentence"
+    - "[ ] Only tags"
+    - "[ ] Issue #1 is not a tag"
+    - "[ ] Nested child task"
+  tags:
+    - middle
+    - alpha
+    - beta
+  issues:
+    - "16: @due(2026-02-30) is not a date"
+- path: projects/haste.md
+  kind: project
+  locked: false
+  title: haste
+  tasks:
+    - "[ ] Call the printer about the proofs"
+    - "[ ] Look up kitty's image placeholders"
+    - "[/] Wire up the renderer"
+    - "[ ] Profile the first frame"
+    - "[x] Sketch the lua_module surface"
+  tags:
+    - research
+    - rust
+  issues: []
+- path: projects/old-blog.md
+  kind: project
+  locked: false
+  title: Old blog
+  tasks:
+    - "[ ] Never going to happen"
+  tags: []
+  issues: []
+- path: projects/website.md
+  kind: project
+  locked: false
+  title: Personal website
+  tasks:
+    - "[ ] Find the old logo files"
+    - "[/] Draft the homepage story"
+    - "[ ] Choose three projects to feature"
+    - "[ ] Gather a few visual references"
+    - "[-] Build a carousel"
+    - "[x] Register the domain"
+    - "[x] Pick a font"
+  tags:
+    - writing
+    - design
+  issues: []
+- path: projects/windows.md
+  kind: project
+  locked: false
+  title: Windows file
+  tasks:
+    - "[ ] Keep my line endings"
+  tags: []
+  issues: []
+- path: projects/workspace.md
+  kind: project
+  locked: false
+  title: A quieter workspace
+  tasks:
+    - "[ ] Sketch the desk layout"
+    - "[ ] Sort the reference shelf"
+    - "[x] Clear the desk"
+  tags:
+    - design
+    - admin
+  issues: []
+- path: templates/daily.md
+  kind: template
+  locked: false
+  title: "{{title}}"
+  tasks: []
+  tags: []
+  issues: []

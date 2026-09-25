@@ -1,543 +1,482 @@
-//! The vault model: Markdown entries on disk (or in Neovim buffers), parsed
-//! into tasks the way den.nvim parses them.
+//! The vault: every Markdown file Den knows about, parsed and kept current.
+//!
+//! ```text
+//! <root>/
+//!   projects/<name>.md      one file per project (no subfolders)
+//!   notes/**/*.md           everything else, any depth
+//!   daily/<date>.md         one journal page per day
+//!   templates/*.md          templates, such as daily.md
+//!   inbox.md                captures made outside any project
+//! ```
+//!
+//! A `.md.age` file in the same places is a locked note: Den knows it exists
+//! but cannot read it without the key.
+//!
+//! When an editor holds unsaved text for a file, that text can be laid over
+//! the file (an *overlay*). Den then reads the editor's version, and refuses
+//! to write the file on disk until the overlay is cleared.
 
-pub mod parse;
-
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-pub use parse::{MAX_ORDER, ParsedTask, Status};
+use jiff::civil::Date;
+use serde::Serialize;
 
-/// The four vault folders den.nvim indexes, in `lua/den/index.lua`'s order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+use crate::error::{Error, Result};
+use crate::parse::{Parsed, parse};
+use crate::text::TextBuf;
+use crate::worktree;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Kind {
-    Inbox,
-    Notes,
-    Projects,
+    Project,
+    Note,
     Daily,
+    Template,
+    Inbox,
 }
 
-impl Kind {
-    pub const ALL: [Kind; 4] = [Kind::Inbox, Kind::Notes, Kind::Projects, Kind::Daily];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Kind::Inbox => "inbox",
-            Kind::Notes => "notes",
-            Kind::Projects => "projects",
-            Kind::Daily => "daily",
-        }
-    }
-
-    /// Parses a folder name, which is also how a kind is stored in the index.
-    pub fn parse(name: &str) -> Option<Kind> {
-        Kind::ALL.into_iter().find(|k| k.as_str() == name)
-    }
-}
-
-/// A task, located in its file.
+/// One file in the vault.
 #[derive(Debug, Clone)]
-pub struct Task {
-    pub parsed: ParsedTask,
-    pub file: PathBuf,
-    /// 1-based, matching the `line` den.nvim's desktop bridge expects.
-    pub line: usize,
-    /// The owning entry's `# Title`.
-    pub entry_title: String,
-}
-
-impl Task {
-    pub fn status(&self) -> Status {
-        self.parsed.status
-    }
-
-    /// What the UI shows: the caption with `@tag()`/`@due()` also removed.
-    pub fn title(&self) -> &str {
-        &self.parsed.display
-    }
-
-    pub fn tags(&self) -> &[String] {
-        &self.parsed.tags
-    }
-
-    pub fn due(&self) -> Option<&str> {
-        self.parsed.due.as_deref()
-    }
-
-    /// `website.md:12`, as the design labels task sources.
-    pub fn location(&self) -> String {
-        let name = self
-            .file
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        format!("{name}:{}", self.line)
-    }
-
-    /// The slot of the task's first tag, which interfaces use to colour its
-    /// stripe. `None` for a finished task, which is drawn neutrally.
-    pub fn slot(&self, tags: &TagIndex) -> Option<u8> {
-        match self.parsed.status {
-            Status::Done => None,
-            _ => self.parsed.tags.first().map(|tag| tags.slot(tag)),
-        }
-    }
-}
-
-/// One Markdown file.
-#[derive(Debug, Clone)]
-pub struct Entry {
-    pub file: PathBuf,
+pub struct Doc {
+    /// Relative to the vault root, with `/` separators.
+    pub path: String,
     pub kind: Kind,
-    pub title: String,
-    pub lines: Vec<String>,
-    pub archived: bool,
-    pub tasks: Vec<Task>,
-    /// True when Neovim holds unsaved changes for this file.
-    pub modified: bool,
+    /// Stored encrypted; `text` is empty until it is unlocked.
+    pub locked: bool,
+    /// The text Den reads: the editor's unsaved buffer when overlaid, else disk.
+    pub text: String,
+    pub buf: TextBuf,
+    pub parsed: Parsed,
+    pub overlaid: bool,
 }
 
-impl Entry {
-    /// den.nvim's `parse.entry`, over an already-read file.
-    pub fn parse(file: PathBuf, kind: Kind, content: &str, modified: bool) -> Entry {
-        let lines: Vec<String> = content.split('\n').map(str::to_string).collect();
-        let title = lines
-            .first()
-            .and_then(|line| parse::heading_title(line))
-            .map(str::to_string)
-            .unwrap_or_else(|| {
-                file.file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default()
-            });
-
-        let mut archived = false;
-        let mut tasks = Vec::new();
-        let mut fence = parse::Fence::default();
-        for (index, line) in lines.iter().enumerate() {
-            if fence.consume(line) || fence.is_open() {
-                continue;
-            }
-            if parse::is_archived_line(line) {
-                archived = true;
-            }
-            if let Some(parsed) = parse::parse_task(line) {
-                tasks.push(Task {
-                    parsed,
-                    file: file.clone(),
-                    line: index + 1,
-                    entry_title: title.clone(),
-                });
-            }
-        }
-
-        Entry {
-            file,
+impl Doc {
+    fn new(path: String, kind: Kind, locked: bool, text: String, overlaid: bool) -> Doc {
+        let buf = TextBuf::parse(&text);
+        let parsed = parse(&buf);
+        Doc {
+            path,
             kind,
-            title,
-            lines,
-            archived,
-            tasks,
-            modified,
+            locked,
+            text,
+            buf,
+            parsed,
+            overlaid,
         }
     }
 
-    pub fn content(&self) -> String {
-        self.lines.join("\n")
+    /// The file name without its extension: `projects/website.md` → `website`.
+    pub fn name(&self) -> &str {
+        let file = self.path.rsplit('/').next().unwrap_or(&self.path);
+        file.strip_suffix(".md.age")
+            .or_else(|| file.strip_suffix(".md"))
+            .unwrap_or(file)
     }
 
-    /// `website.md`
-    pub fn file_name(&self) -> String {
-        self.file
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default()
+    /// The first `# ` heading, or the file name.
+    pub fn title(&self) -> String {
+        self.parsed
+            .title
+            .clone()
+            .unwrap_or_else(|| self.name().to_string())
     }
 
-    pub fn open_tasks(&self) -> impl Iterator<Item = &Task> {
-        self.tasks
-            .iter()
-            .filter(|t| t.parsed.status != Status::Done)
+    pub fn field(&self, key: &str) -> Option<String> {
+        self.parsed.frontmatter.text(key)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProjectStatus {
+    Active,
+    Paused,
+    Archived,
+}
+
+/// A project: a file in `projects/`, seen through its fields.
+#[derive(Debug, Clone, Copy)]
+pub struct Project<'a> {
+    pub doc: &'a Doc,
+}
+
+impl<'a> Project<'a> {
+    pub fn name(&self) -> &'a str {
+        self.doc.name()
     }
 
-    pub fn done_tasks(&self) -> impl Iterator<Item = &Task> {
-        self.tasks
-            .iter()
-            .filter(|t| t.parsed.status == Status::Done)
+    pub fn title(&self) -> String {
+        self.doc.title()
     }
 
-    /// The entry's `Status:` line value, if it has one. The design shows this
-    /// as the pill beside the project title.
-    pub fn status_label(&self) -> Option<&str> {
-        self.lines
-            .iter()
-            .find_map(|line| line.strip_prefix("Status:"))
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
+    /// The code folder this project belongs to, with `~` expanded.
+    pub fn root(&self) -> Option<PathBuf> {
+        self.doc.field("root").map(|r| expand_home(&r))
     }
 
-    /// The entry's `Stack:` line, split into tokens.
-    ///
-    /// A note may declare what it is built with:
-    ///
-    /// ```text
-    /// Stack: rust, typescript, tailwind
-    /// ```
-    ///
-    /// The interface draws one icon per token. Parsing it here keeps the engine
-    /// the only thing that reads the file format, and returning plain strings
-    /// keeps the engine from knowing what an icon is — the same split that
-    /// makes `TagIndex` hand out slots rather than colours.
-    ///
-    /// Absent on most notes, and deliberately so: a note about a desk has no
-    /// stack, and the interface falls back to the note's kind.
-    pub fn stack(&self) -> Vec<&str> {
-        self.lines
-            .iter()
-            .find_map(|line| line.strip_prefix("Stack:"))
-            .into_iter()
-            .flat_map(|value| value.split(','))
-            .map(str::trim)
-            .filter(|token| !token.is_empty())
-            .collect()
-    }
-
-    /// Splits the body into `## Heading` sections for the home view's note
-    /// panel. Lines before the first subheading land under an empty heading.
-    pub fn sections(&self) -> Vec<Section<'_>> {
-        let mut sections: Vec<Section<'_>> = Vec::new();
-        let mut fence = parse::Fence::default();
-        for (index, line) in self.lines.iter().enumerate() {
-            let fenced = fence.consume(line) || fence.is_open();
-            if !fenced && let Some(heading) = line.strip_prefix("## ") {
-                sections.push(Section {
-                    heading: heading.trim(),
-                    lines: Vec::new(),
-                });
-                continue;
-            }
-            // Skip the title, the header lines and blank padding.
-            if index == 0
-                || line.trim().is_empty()
-                || (!fenced && (line.starts_with("Status:") || line.starts_with("Stack:")))
-            {
-                continue;
-            }
-            if let Some(section) = sections.last_mut() {
-                section.lines.push((index + 1, line.as_str()));
-            }
+    /// `active` unless the file says `paused` or `archived`.
+    pub fn status(&self) -> ProjectStatus {
+        match self.doc.field("status").as_deref() {
+            Some("paused") => ProjectStatus::Paused,
+            Some("archived") => ProjectStatus::Archived,
+            _ => ProjectStatus::Active,
         }
-        sections.retain(|section| !section.lines.is_empty());
-        sections
     }
+
+    pub fn due(&self) -> Option<Date> {
+        self.doc.parsed.frontmatter.date("due")
+    }
+
+    pub fn created(&self) -> Option<Date> {
+        self.doc.parsed.frontmatter.date("created")
+    }
+}
+
+/// A file Den found but could not read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Problem {
+    pub path: String,
+    pub message: String,
 }
 
 #[derive(Debug, Clone)]
-pub struct Section<'a> {
-    pub heading: &'a str,
-    /// `(1-based line number, text)`
-    pub lines: Vec<(usize, &'a str)>,
-}
-
-/// Assigns a stable color to every tag in the vault.
-///
-/// The seven tags the design names keep the hues it drew them in, so `--demo`
-/// reproduces the mockup exactly. Everything else is hashed, which is stable
-/// across runs and independent of what else is in the vault.
-#[derive(Debug, Clone, Default)]
-pub struct TagIndex {
-    counts: BTreeMap<String, usize>,
-}
-
-impl TagIndex {
-    /// How many distinct colours an interface is expected to offer. The engine
-    /// does not know what they look like — it only guarantees that a given tag
-    /// always lands in the same slot.
-    pub const SLOTS: u8 = 8;
-
-    /// The well-known tags, pinned so a vault's colours never shuffle when an
-    /// unrelated tag is added.
-    const PINNED: [(&'static str, u8); 7] = [
-        ("design", 0),
-        ("orange", 1),
-        ("writing", 2),
-        ("deep-work", 3),
-        ("web", 4),
-        ("research", 5),
-        ("admin", 7),
-    ];
-
-    /// A stable slot in `0..SLOTS` for this tag.
-    ///
-    /// Colour lives in the interface; the engine only provides the identity it
-    /// is keyed by, so the desktop and the editor can agree on which tag is
-    /// which without the engine knowing what a colour is.
-    pub fn slot(&self, tag: &str) -> u8 {
-        if let Some((_, slot)) = Self::PINNED.iter().find(|(name, _)| *name == tag) {
-            return *slot;
-        }
-        // FNV-1a, so the choice does not move between runs or platforms.
-        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-        for byte in tag.as_bytes() {
-            hash ^= u64::from(*byte);
-            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-        }
-        (hash % u64::from(Self::SLOTS)) as u8
-    }
-
-    /// Tags with their task counts, most used first, then alphabetical.
-    pub fn ranked(&self) -> Vec<(&str, u8, usize)> {
-        let mut ranked: Vec<_> = self
-            .counts
-            .iter()
-            .map(|(tag, count)| (tag.as_str(), self.slot(tag), *count))
-            .collect();
-        ranked.sort_by(|a, b| b.2.cmp(&a.2).then(a.0.cmp(b.0)));
-        ranked
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.counts.is_empty()
-    }
-}
-
-#[derive(Debug, Clone, Default)]
 pub struct Vault {
-    pub root: PathBuf,
-    pub entries: Vec<Entry>,
-    pub tags: TagIndex,
+    root: PathBuf,
+    docs: BTreeMap<String, Doc>,
+    problems: Vec<Problem>,
 }
 
 impl Vault {
-    /// Reads the four vault folders from disk. Unreadable files are skipped
-    /// rather than failing the load — a vault is user-owned and may contain
-    /// anything.
-    pub fn load(root: &Path) -> Vault {
-        let mut sources = Vec::new();
-        for kind in Kind::ALL {
-            let directory = root.join(kind.as_str());
-            let Ok(listing) = std::fs::read_dir(&directory) else {
-                continue;
-            };
-            for file in listing.flatten() {
-                let path = file.path();
-                if path.extension().is_some_and(|e| e == "md")
-                    && file.file_type().is_ok_and(|t| t.is_file())
-                    && let Ok(content) = std::fs::read_to_string(&path)
-                {
-                    sources.push((path, kind, content, false));
-                }
-            }
+    /// Reads every file in the vault. The folder must exist; it may be empty.
+    pub fn open(root: impl Into<PathBuf>) -> Result<Vault> {
+        let root = root.into();
+        let meta = std::fs::metadata(&root).map_err(|e| Error::io(&root, e))?;
+        if !meta.is_dir() {
+            return Err(Error::Invalid(format!(
+                "{} is not a folder",
+                root.display()
+            )));
         }
-        Vault::from_sources(root.to_path_buf(), sources)
-    }
-
-    /// Whether Den can write into the vault at all.
-    ///
-    /// This is the one condition that genuinely makes Den read-only, and it has
-    /// nothing to do with Neovim: the engine writes Markdown itself, so an
-    /// unattached Den is fully writable. What makes it read-only is the
-    /// directory — a read-only mount, a vault owned by another user, or a
-    /// sandbox that has not been granted the folder.
-    ///
-    /// Probed by creating and removing a file rather than by reading permission
-    /// bits, because the bits do not account for mount flags, ACLs or sandbox
-    /// policy. `mutate::write_atomically` already creates a temp file beside its
-    /// target, so this exercises the same mechanism the real write path uses.
-    pub fn is_writable(root: &Path) -> bool {
-        let probe = root.join(format!(".den-write-probe-{}", std::process::id()));
-        match std::fs::File::create(&probe) {
-            Ok(_) => {
-                let _ = std::fs::remove_file(&probe);
-                true
-            }
-            Err(_) => false,
-        }
-    }
-
-    /// A cheap stat-only summary of the vault on disk, used to decide whether a
-    /// reload is worth doing. Re-reading every file on a timer would be wasteful
-    /// for a large vault; comparing this is two syscalls per file.
-    pub fn fingerprint(root: &Path) -> Vec<(PathBuf, u64, u64)> {
-        let mut marks = Vec::new();
-        for kind in Kind::ALL {
-            let Ok(listing) = std::fs::read_dir(root.join(kind.as_str())) else {
-                continue;
-            };
-            for file in listing.flatten() {
-                let path = file.path();
-                if !path.extension().is_some_and(|e| e == "md") {
-                    continue;
-                }
-                let Ok(meta) = file.metadata() else { continue };
-                let modified = meta
-                    .modified()
-                    .ok()
-                    .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_millis() as u64)
-                    .unwrap_or_default();
-                marks.push((path, modified, meta.len()));
-            }
-        }
-        marks.sort();
-        marks
-    }
-
-    /// Marks entries that an editor is holding unsaved changes for.
-    ///
-    /// The engine reads from disk, so a dirty buffer is not a *source* of
-    /// content — it is a reason to refuse a write. The interface that knows
-    /// about buffers (den.nvim) reports the paths; everything else just shows
-    /// the flag.
-    pub fn mark_modified(&mut self, dirty: &[PathBuf]) {
-        for entry in &mut self.entries {
-            entry.modified = dirty.contains(&entry.file);
-        }
-    }
-
-    fn from_sources(root: PathBuf, sources: Vec<(PathBuf, Kind, String, bool)>) -> Vault {
-        let mut entries: Vec<Entry> = sources
-            .into_iter()
-            .map(|(path, kind, content, modified)| Entry::parse(path, kind, &content, modified))
-            .collect();
-        // den.nvim sorts entries by path; matching it keeps the two UIs in step.
-        entries.sort_by(|a, b| a.file.cmp(&b.file));
-
-        // Counts cover every task, finished ones included: a tag that only ever
-        // appears on closed work still belongs in the index, and the design's
-        // own sidebar counts it that way (`#studio 3` includes "Clear the desk").
-        let mut tags = TagIndex::default();
-        for entry in entries.iter().filter(|e| !e.archived) {
-            for task in &entry.tasks {
-                for tag in task.tags() {
-                    *tags.counts.entry(tag.clone()).or_default() += 1;
-                }
-            }
-        }
-
-        Vault {
+        let mut vault = Vault {
             root,
-            entries,
-            tags,
-        }
+            docs: BTreeMap::new(),
+            problems: Vec::new(),
+        };
+        vault.rescan()?;
+        Ok(vault)
     }
 
-    /// Entries that are not archived, which is what every view works from.
-    pub fn active(&self) -> impl Iterator<Item = &Entry> {
-        self.entries.iter().filter(|entry| !entry.archived)
+    pub fn root(&self) -> &Path {
+        &self.root
     }
 
-    pub fn tasks(&self) -> impl Iterator<Item = &Task> {
-        self.active().flat_map(|entry| entry.tasks.iter())
+    pub fn docs(&self) -> impl Iterator<Item = &Doc> {
+        self.docs.values()
     }
 
-    pub fn entry(&self, file: &Path) -> Option<&Entry> {
-        self.entries.iter().find(|entry| entry.file == file)
+    pub fn doc(&self, path: &str) -> Option<&Doc> {
+        self.docs.get(path)
     }
 
-    pub fn task_at(&self, file: &Path, line: usize) -> Option<&Task> {
-        self.entry(file)?
-            .tasks
-            .iter()
-            .find(|task| task.line == line)
+    /// Files that exist but could not be read.
+    pub fn problems(&self) -> &[Problem] {
+        &self.problems
     }
 
-    pub fn counts(&self) -> Counts {
-        let mut counts = Counts::default();
-        for task in self.tasks() {
-            counts.total += 1;
-            match task.status() {
-                Status::Backlog => counts.backlog += 1,
-                Status::Doing => counts.doing += 1,
-                Status::Done => counts.done += 1,
+    /// Finds added and removed files and re-reads everything from disk,
+    /// keeping any overlays.
+    pub fn rescan(&mut self) -> Result<()> {
+        let mut found = Vec::new();
+        collect(&self.root, &self.root, &mut found).map_err(|e| Error::io(&self.root, e))?;
+        let overlays: BTreeMap<String, String> = self
+            .docs
+            .values()
+            .filter(|d| d.overlaid)
+            .map(|d| (d.path.clone(), d.text.clone()))
+            .collect();
+        self.docs.clear();
+        self.problems.clear();
+        for (path, kind, locked) in found {
+            if let Some(text) = overlays.get(&path) {
+                self.docs.insert(
+                    path.clone(),
+                    Doc::new(path, kind, locked, text.clone(), true),
+                );
+            } else {
+                self.load(path, kind, locked);
             }
         }
-        counts
+        Ok(())
     }
 
-    /// The name shown in the title bar and status bar.
-    pub fn label(&self) -> String {
-        self.root
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| self.root.to_string_lossy().into_owned())
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Counts {
-    pub total: usize,
-    pub backlog: usize,
-    pub doing: usize,
-    pub done: usize,
-}
-
-impl Counts {
-    pub fn open(self) -> usize {
-        self.backlog + self.doing
-    }
-
-    /// 0.0–1.0, for the HEARTH meters.
-    pub fn done_fraction(self) -> f32 {
-        if self.total == 0 {
-            return 0.0;
+    /// Re-reads one file from disk (or drops it if it is gone). Overlaid files
+    /// keep the editor's text.
+    pub fn reload(&mut self, path: &str) {
+        self.problems.retain(|p| p.path != path);
+        if self.docs.get(path).is_some_and(|d| d.overlaid) {
+            return;
         }
-        self.done as f32 / self.total as f32
+        match classify(path) {
+            Some((kind, locked)) if self.abs(path).is_file() => {
+                self.load(path.to_string(), kind, locked);
+            }
+            _ => {
+                self.docs.remove(path);
+            }
+        }
     }
+
+    fn load(&mut self, path: String, kind: Kind, locked: bool) {
+        if locked {
+            self.docs.insert(
+                path.clone(),
+                Doc::new(path, kind, true, String::new(), false),
+            );
+            return;
+        }
+        let abs = self.abs(&path);
+        match std::fs::read(&abs) {
+            Ok(bytes) => match String::from_utf8(bytes) {
+                Ok(text) => {
+                    self.docs
+                        .insert(path.clone(), Doc::new(path, kind, false, text, false));
+                }
+                Err(_) => {
+                    self.docs.remove(&path);
+                    self.problems.push(Problem {
+                        path,
+                        message: "not UTF-8 text".to_string(),
+                    });
+                }
+            },
+            Err(e) => {
+                self.docs.remove(&path);
+                self.problems.push(Problem {
+                    path,
+                    message: e.to_string(),
+                });
+            }
+        }
+    }
+
+    /// Lays an editor's unsaved text over a file, or clears it with `None`.
+    pub fn set_overlay(&mut self, path: &str, text: Option<String>) -> Result<()> {
+        let (kind, locked) = classify(path).ok_or_else(|| Error::OutsideVault(path.to_string()))?;
+        match text {
+            Some(text) => {
+                self.docs.insert(
+                    path.to_string(),
+                    Doc::new(path.to_string(), kind, locked, text, true),
+                );
+            }
+            None => {
+                if let Some(doc) = self.docs.get_mut(path) {
+                    doc.overlaid = false;
+                }
+                self.reload(path);
+            }
+        }
+        Ok(())
+    }
+
+    /// Files with an overlay: the ones Den must not write.
+    pub fn dirty(&self) -> BTreeSet<String> {
+        self.docs
+            .values()
+            .filter(|d| d.overlaid)
+            .map(|d| d.path.clone())
+            .collect()
+    }
+
+    pub fn abs(&self, path: &str) -> PathBuf {
+        self.root.join(path)
+    }
+
+    /// The vault path of an absolute path, if it names a vault file.
+    pub fn rel(&self, abs: &Path) -> Option<String> {
+        let root = std::fs::canonicalize(&self.root).unwrap_or_else(|_| self.root.clone());
+        let abs = std::fs::canonicalize(abs).unwrap_or_else(|_| abs.to_path_buf());
+        let inner = abs
+            .strip_prefix(&root)
+            .or_else(|_| abs.strip_prefix(&self.root))
+            .ok()?;
+        let path = inner
+            .components()
+            .map(|c| c.as_os_str().to_str())
+            .collect::<Option<Vec<_>>>()?
+            .join("/");
+        classify(&path).map(|_| path)
+    }
+
+    pub fn projects(&self) -> impl Iterator<Item = Project<'_>> {
+        self.docs
+            .values()
+            .filter(|d| d.kind == Kind::Project)
+            .map(|doc| Project { doc })
+    }
+
+    pub fn project(&self, name: &str) -> Option<Project<'_>> {
+        let plain = format!("projects/{name}.md");
+        self.docs
+            .get(&plain)
+            .or_else(|| self.docs.get(&format!("{plain}.age")))
+            .map(|doc| Project { doc })
+    }
+
+    /// The project a document belongs to: itself, or the one its `project:`
+    /// field names.
+    pub fn project_of(&self, doc: &Doc) -> Option<Project<'_>> {
+        match doc.kind {
+            Kind::Project => self.project(doc.name()),
+            _ => self.project(&doc.field("project")?),
+        }
+    }
+
+    /// Notes that name `project` in their `project:` field.
+    pub fn notes_of(&self, project: &str) -> Vec<&Doc> {
+        self.docs
+            .values()
+            .filter(|d| d.kind == Kind::Note && d.field("project").as_deref() == Some(project))
+            .collect()
+    }
+
+    /// Every note that names a project, grouped by project name. One pass,
+    /// for views that need the notes of many projects.
+    pub fn notes_by_project(&self) -> BTreeMap<String, Vec<&Doc>> {
+        let mut out: BTreeMap<String, Vec<&Doc>> = BTreeMap::new();
+        for doc in self.docs.values().filter(|d| d.kind == Kind::Note) {
+            if let Some(project) = doc.field("project") {
+                out.entry(project).or_default().push(doc);
+            }
+        }
+        out
+    }
+
+    /// The project whose `root:` contains `dir`, looking through git
+    /// worktrees to their main checkout. The deepest root wins.
+    pub fn project_for_dir(&self, dir: &Path) -> Option<Project<'_>> {
+        let mut candidates = vec![std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf())];
+        if let Some(main) = worktree::in_main_checkout(&candidates[0]) {
+            candidates.push(main);
+        }
+        self.projects()
+            .filter_map(|p| {
+                let root = p.root()?;
+                let root = std::fs::canonicalize(&root).unwrap_or(root);
+                candidates
+                    .iter()
+                    .any(|c| c.starts_with(&root))
+                    .then(|| (root.components().count(), p))
+            })
+            .max_by_key(|(depth, _)| *depth)
+            .map(|(_, p)| p)
+    }
+}
+
+/// What a vault path holds, or `None` if Den does not read it.
+pub fn classify(path: &str) -> Option<(Kind, bool)> {
+    let (stem_ok, locked) = if path.ends_with(".md.age") {
+        (true, true)
+    } else {
+        (path.ends_with(".md"), false)
+    };
+    if !stem_ok
+        || path
+            .split('/')
+            .any(|part| part.is_empty() || part.starts_with('.') || part == "..")
+    {
+        return None;
+    }
+    let parts: Vec<&str> = path.split('/').collect();
+    let kind = match parts.as_slice() {
+        ["inbox.md"] => Kind::Inbox,
+        ["projects", _] => Kind::Project,
+        ["notes", ..] if parts.len() >= 2 => Kind::Note,
+        ["daily", _] => Kind::Daily,
+        ["templates", _] => Kind::Template,
+        _ => return None,
+    };
+    Some((kind, locked))
+}
+
+fn collect(root: &Path, dir: &Path, out: &mut Vec<(String, Kind, bool)>) -> std::io::Result<()> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound && dir != root => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if name.starts_with('.') {
+            continue;
+        }
+        let path = entry.path();
+        let file_type = std::fs::metadata(&path).map(|m| m.file_type());
+        let Ok(file_type) = file_type else { continue };
+        if file_type.is_dir() {
+            collect(root, &path, out)?;
+        } else if file_type.is_file() {
+            let Ok(inner) = path.strip_prefix(root) else {
+                continue;
+            };
+            let Some(rel) = inner
+                .components()
+                .map(|c| c.as_os_str().to_str())
+                .collect::<Option<Vec<_>>>()
+                .map(|parts| parts.join("/"))
+            else {
+                continue;
+            };
+            if let Some((kind, locked)) = classify(&rel) {
+                out.push((rel, kind, locked));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `~/code` → `/Users/me/code`.
+pub fn expand_home(path: &str) -> PathBuf {
+    match (path.strip_prefix("~/"), std::env::home_dir()) {
+        (Some(rest), Some(home)) => home.join(rest),
+        _ if path == "~" => std::env::home_dir().unwrap_or_else(|| PathBuf::from(path)),
+        _ => PathBuf::from(path),
+    }
+}
+
+/// `/Users/me/code` → `~/code`, for writing paths people read.
+pub fn contract_home(path: &Path) -> String {
+    if let Some(home) = std::env::home_dir()
+        && let Ok(rest) = path.strip_prefix(&home)
+    {
+        if rest.as_os_str().is_empty() {
+            return "~".to_string();
+        }
+        return format!("~/{}", rest.display());
+    }
+    path.display().to_string()
 }
 
 #[cfg(test)]
-mod header_tests {
+mod tests {
     use super::*;
 
-    fn entry(body: &str) -> Entry {
-        let vault = Vault::from_sources(
-            PathBuf::from("/tmp/den-test"),
-            vec![(
-                PathBuf::from("/tmp/den-test/projects/n.md"),
-                Kind::Projects,
-                body.to_string(),
-                false,
-            )],
+    #[test]
+    fn classifies_vault_paths() {
+        assert_eq!(classify("projects/site.md"), Some((Kind::Project, false)));
+        assert_eq!(classify("projects/sub/site.md"), None);
+        assert_eq!(classify("notes/a/b/c.md"), Some((Kind::Note, false)));
+        assert_eq!(
+            classify("daily/2026-09-24.md.age"),
+            Some((Kind::Daily, true))
         );
-        vault.entries.into_iter().next().expect("one entry")
-    }
-
-    #[test]
-    fn stack_is_split_on_commas_and_trimmed() {
-        let e = entry("# N\n\nStatus: active\nStack: rust,  typescript , tailwind\n");
-        assert_eq!(e.stack(), vec!["rust", "typescript", "tailwind"]);
-        assert_eq!(e.status_label(), Some("active"));
-    }
-
-    #[test]
-    fn a_note_without_a_stack_reports_none_rather_than_an_empty_token() {
-        // The common case: most notes are not code projects.
-        assert!(entry("# N\n\nStatus: active\n").stack().is_empty());
-        assert!(entry("# N\n\nStack:\n").stack().is_empty());
-        assert!(entry("# N\n\nStack:   ,  ,\n").stack().is_empty());
-    }
-
-    #[test]
-    fn header_lines_stay_out_of_the_body_sections() {
-        let e = entry("# N\n\nStatus: active\nStack: rust\n\n## Notes\n\nreal prose\n");
-        let sections = e.sections();
-        let text: Vec<&str> = sections
-            .iter()
-            .flat_map(|s| s.lines.iter().map(|(_, l)| *l))
-            .collect();
-        assert_eq!(text, vec!["real prose"], "headers must not leak into prose");
-    }
-
-    #[test]
-    fn a_writable_directory_probes_writable_and_a_missing_one_does_not() {
-        let dir = std::env::temp_dir().join(format!("den-writable-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("temp dir");
-        assert!(Vault::is_writable(&dir));
-        // The probe must leave nothing behind.
-        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
-
-        std::fs::remove_dir_all(&dir).ok();
-        assert!(!Vault::is_writable(&dir), "a missing vault is not writable");
+        assert_eq!(classify("inbox.md"), Some((Kind::Inbox, false)));
+        assert_eq!(classify("README.md"), None);
+        assert_eq!(classify("notes/.hidden.md"), None);
+        assert_eq!(classify("notes/../x.md"), None);
+        assert_eq!(classify("notes/a.txt"), None);
     }
 }

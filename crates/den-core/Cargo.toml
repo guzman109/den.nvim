@@ -1,12 +1,23 @@
 [package]
 name = "den-core"
-description = "The Den engine: the Markdown vault, its index, and every rule that acts on them."
+description = "The Den engine: the Markdown vault, its rules, and every change made to it."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
+gethostname.workspace = true
 jiff.workspace = true
+notify.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-rusqlite = { version = "0.38", features = ["bundled"] }
+serde_norway.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

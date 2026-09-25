@@ -1,0 +1,330 @@
+---
+source: crates/den-core/tests/vault.rs
+expression: "vault.tasks_view(&Scope::All, TODAY)"
+---
+doing:
+  - path: projects/haste.md
+    line: 14
+    raw: "- [/] Wire up the renderer #rust"
+    text: "Wire up the renderer #rust"
+    title: Wire up the renderer
+    state: doing
+    tags:
+      - rust
+    due: ~
+    done: ~
+    section: Next actions
+    project:
+      name: haste
+      title: haste
+    source: haste
+  - path: projects/website.md
+    line: 16
+    raw: "- [/] Draft the homepage story #writing @due(2026-09-28)"
+    text: "Draft the homepage story #writing @due(2026-09-28)"
+    title: Draft the homepage story
+    state: doing
+    tags:
+      - writing
+    due: 2026-09-28
+    done: ~
+    section: Next actions
+    project:
+      name: website
+      title: Personal website
+    source: Personal website
+groups:
+  - project:
+      name: edge-cases
+      title: Edge cases
+    label: Edge cases
+    tasks:
+      - path: projects/edge-cases.md
+        line: 11
+        raw: "- [ ] Plain task"
+        text: Plain task
+        title: Plain task
+        state: open
+        tags: []
+        due: ~
+        done: ~
+        section: Next actions
+        project:
+          name: edge-cases
+          title: Edge cases
+        source: Edge cases
+      - path: projects/edge-cases.md
+        line: 12
+        raw: "* [ ] Star bullet"
+        text: Star bullet
+        title: Star bullet
+        state: open
+        tags: []
+        due: ~
+        done: ~
+        section: Next actions
+        project:
+          name: edge-cases
+          title: Edge cases
+        source: Edge cases
+      - path: projects/edge-cases.md
+        line: 13
+        raw: "+ [ ] Plus bullet"
+        text: Plus bullet
+        title: Plus bullet
+        state: open
+        tags: []
+        due: ~
+        done: ~
+        section: Next actions
+        project:
+          name: edge-cases
+          title: Edge cases
+        source: Edge cases
+      - path: projects/edge-cases.md
+        line: 15
+        raw: "- [ ] Bad date @due(2026-02-30)"
+        text: Bad date @due(2026-02-30)
+        title: Bad date @due(2026-02-30)
+        state: open
+        tags: []
+        due: ~
+        done: ~
+        section: Next actions
+        project:
+          name: edge-cases
+          title: Edge cases
+        source: Edge cases
+      - path: projects/edge-cases.md
+        line: 16
+        raw: "- [ ] Tag in the #middle of a sentence"
+        text: "Tag in the #middle of a sentence"
+        title: "Tag in the #middle of a sentence"
+        state: open
+        tags:
+          - middle
+        due: ~
+        done: ~
+        section: Next actions
+        project:
+          name: edge-cases
+          title: Edge cases
+        source: Edge cases
+      - path: projects/edge-cases.md
+        line: 17
+        raw: "- [ ] Only tags #alpha #beta"
+        text: "Only tags #alpha #beta"
+        title: Only tags
+        state: open
+        tags:
+          - alpha
+          - beta
+        due: ~
+        done: ~
+        section: Next actions
+        project:
+          name: edge-cases
+          title: Edge cases
+        source: Edge cases
+      - path: projects/edge-cases.md
+        line: 18
+        raw: "- [ ] Issue #1 is not a tag"
+        text: "Issue #1 is not a tag"
+        title: "Issue #1 is not a tag"
+        state: open
+        tags: []
+        due: ~
+        done: ~
+        section: Next actions
+        project:
+          name: edge-cases
+          title: Edge cases
+        source: Edge cases
+      - path: projects/edge-cases.md
+        line: 19
+        raw: "  - [ ] Nested child task"
+        text: Nested child task
+        title: Nested child task
+        state: open
+        tags: []
+        due: ~
+        done: ~
+        section: Next actions
+        project:
+          name: edge-cases
+          title: Edge cases
+        source: Edge cases
+  - project:
+      name: haste
+      title: haste
+    label: haste
+    tasks:
+      - path: projects/haste.md
+        line: 15
+        raw: "- [ ] Profile the first frame #rust @due(2026-09-24)"
+        text: "Profile the first frame #rust @due(2026-09-24)"
+        title: Profile the first frame
+        state: open
+        tags:
+          - rust
+        due: 2026-09-24
+        done: ~
+        section: Next actions
+        project:
+          name: haste
+          title: haste
+        source: haste
+  - project:
+      name: website
+      title: Personal website
+    label: Personal website
+    tasks:
+      - path: projects/website.md
+        line: 17
+        raw: "- [ ] Choose three projects to feature #writing"
+        text: "Choose three projects to feature #writing"
+        title: Choose three projects to feature
+        state: open
+        tags:
+          - writing
+        due: ~
+        done: ~
+        section: Next actions
+        project:
+          name: website
+          title: Personal website
+        source: Personal website
+      - path: projects/website.md
+        line: 18
+        raw: "- [ ] Gather a few visual references #design @due(2026-09-20)"
+        text: "Gather a few visual references #design @due(2026-09-20)"
+        title: Gather a few visual references
+        state: open
+        tags:
+          - design
+        due: 2026-09-20
+        done: ~
+        section: Next actions
+        project:
+          name: website
+          title: Personal website
+        source: Personal website
+      - path: notes/homepage-story.md
+        line: 8
+        raw: "- [ ] Ask two friends to read the draft"
+        text: Ask two friends to read the draft
+        title: Ask two friends to read the draft
+        state: open
+        tags: []
+        due: ~
+        done: ~
+        section: ~
+        project:
+          name: website
+          title: Personal website
+        source: Homepage story
+  - project:
+      name: windows
+      title: Windows file
+    label: Windows file
+    tasks:
+      - path: projects/windows.md
+        line: 7
+        raw: "- [ ] Keep my line endings"
+        text: Keep my line endings
+        title: Keep my line endings
+        state: open
+        tags: []
+        due: ~
+        done: ~
+        section: Next actions
+        project:
+          name: windows
+          title: Windows file
+        source: Windows file
+  - project: ~
+    label: no project
+    tasks:
+      - path: daily/2026-09-24.md
+        line: 16
+        raw: "- [ ] Profile before touching anything else"
+        text: Profile before touching anything else
+        title: Profile before touching anything else
+        state: open
+        tags: []
+        due: ~
+        done: ~
+        section: Tomorrow
+        project: ~
+        source: Thursday 24 September
+      - path: notes/reading/books.md
+        line: 5
+        raw: "- [ ] Finish \"A Philosophy of Software Design\""
+        text: "Finish \"A Philosophy of Software Design\""
+        title: "Finish \"A Philosophy of Software Design\""
+        state: open
+        tags: []
+        due: ~
+        done: ~
+        section: ~
+        project: ~
+        source: Books
+closed:
+  - path: projects/haste.md
+    line: 16
+    raw: "- [x] Sketch the lua_module surface @done(2026-09-24)"
+    text: Sketch the lua_module surface @done(2026-09-24)
+    title: Sketch the lua_module surface
+    state: done
+    tags: []
+    due: ~
+    done: 2026-09-24
+    section: Next actions
+    project:
+      name: haste
+      title: haste
+    source: haste
+  - path: projects/workspace.md
+    line: 9
+    raw: "- [x] Clear the desk @done(2026-09-24)"
+    text: Clear the desk @done(2026-09-24)
+    title: Clear the desk
+    state: done
+    tags: []
+    due: ~
+    done: 2026-09-24
+    section: Next actions
+    project:
+      name: workspace
+      title: A quieter workspace
+    source: A quieter workspace
+  - path: projects/edge-cases.md
+    line: 14
+    raw: "- [X] Capital X done @done(2026-09-23)"
+    text: Capital X done @done(2026-09-23)
+    title: Capital X done
+    state: done
+    tags: []
+    due: ~
+    done: 2026-09-23
+    section: Next actions
+    project:
+      name: edge-cases
+      title: Edge cases
+    source: Edge cases
+  - path: projects/website.md
+    line: 21
+    raw: "- [x] Pick a font @done(2026-09-22)"
+    text: Pick a font @done(2026-09-22)
+    title: Pick a font
+    state: done
+    tags: []
+    due: ~
+    done: 2026-09-22
+    section: Next actions
+    project:
+      name: website
+      title: Personal website
+    source: Personal website
+open: 17
+locked: 0
