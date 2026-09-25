@@ -6,15 +6,18 @@ use std::path::Path;
 
 use den_core::lock::VaultKey;
 
-/// No crash dumps (they would hold the key), and on Linux no attaching a
-/// debugger or reading this process's memory from outside.
+/// No crash dumps: they would hold the key.
+///
+/// On Linux the agent stays "dumpable" on purpose. A non-dumpable process
+/// hides `/proc/<pid>/exe`, and clients check that path to be sure they
+/// are talking to den-agent before they send a password; an impostor on
+/// the socket would otherwise collect it. Reading this process's memory
+/// is left to the kernel's ptrace rules (Yama, on by default in most
+/// distributions), and while the vault is unlocked any program running as
+/// the person can already ask the agent to decrypt a note.
 pub fn harden() {
     use nix::sys::resource::{Resource, setrlimit};
     let _ = setrlimit(Resource::RLIMIT_CORE, 0, 0);
-    #[cfg(target_os = "linux")]
-    {
-        let _ = nix::sys::prctl::set_dumpable(false);
-    }
 }
 
 /// Whether the connected process runs as the same user.
