@@ -20,23 +20,6 @@ search.
 
 ## Open
 
-### B-011 · Locked notes never worked on Linux
-- Found: 2026-09-25, the first CI run on Linux (GitHub Actions)
-- Status: fixing (the fix waits for a Linux CI run to confirm it)
-- Where: crates/den-agent/src/platform.rs, crates/den-core/src/agent.rs
-- Steps: on Linux, unlock the vault, or run `cargo test -p den-agent`
-- Expected: Neovim, `den` and `den-mcp` talk to den-agent
-- Actual: every client refuses the agent ("could not tell which program is
-  listening"); all 11 agent tests time out with "the agent starts"
-- Cause: the agent made itself non-dumpable, which hides
-  `/proc/<pid>/exe` from other processes, and that is exactly what
-  clients read to check the listener is den-agent. Only macOS had run the
-  tests before.
-- Fix: the agent stays dumpable on Linux. The program check protects the
-  password; memory reads are left to the kernel's ptrace rules. Crash
-  dumps stay off
-- Test: tests/agent.rs, on the Linux CI runner
-
 ### B-010 · Tests assume today is 2026-09-24
 - Found: 2026-09-25, the Neovim suite on the day after the fixtures' date
 - Status: open
@@ -66,6 +49,23 @@ search.
 - gpg-agent's pinentry can still appear for GPG-signed commits
 
 ## Closed
+
+### B-011 · Locked notes never worked on Linux
+- Found: 2026-09-25, the first CI run on Linux (GitHub Actions)
+- Status: closed; the agent tests pass on the Linux CI runner
+- Where: crates/den-agent/src/platform.rs, crates/den-core/src/agent.rs
+- Steps: on Linux, unlock the vault, or run `cargo test -p den-agent`
+- Expected: Neovim, `den` and `den-mcp` talk to den-agent
+- Actual: every client refuses the agent ("could not tell which program is
+  listening"); all 11 agent tests time out with "the agent starts"
+- Cause: the agent made itself non-dumpable, which hides
+  `/proc/<pid>/exe` from other processes, and that is exactly what
+  clients read to check the listener is den-agent. Only macOS had run the
+  tests before.
+- Fix: the agent stays dumpable on Linux. The program check protects the
+  password; memory reads are left to the kernel's ptrace rules. Crash
+  dumps stay off
+- Test: tests/agent.rs, on the Linux CI runner
 
 ### B-009 · Bug hunt and second security review: fixed
 - Found: 2026-09-24, an independent bug hunt (18 confirmed, 8 suspected)

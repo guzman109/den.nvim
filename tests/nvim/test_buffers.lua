@@ -142,12 +142,24 @@ T.test("a move across two files is applied whole or not at all", function()
   local buf = vim.api.nvim_get_current_buf()
   T.settle()
   local task = row("website", "Choose three projects to feature")
-  -- The target changes on disk before Den hears about it.
+  local plan = native.call("plan_move", require("den.util").ref(task), "haste", "next_actions")
+  -- The target changes on disk after the plan was made. (Planned first:
+  -- on Linux the watcher re-reads a file within milliseconds.)
   append("projects/haste.md", "- [ ] Changed behind Den's back\n")
-  actions.move(task, "haste")
+  local ok, err = require("den.apply").apply(plan)
+  T.eq(ok, false, "refused")
+  T.contains(err, "projects/haste.md")
   T.contains(T.lines(buf), "- [ ] Choose three projects to feature", "the task stays where it was")
   T.contains(T.read("projects/website.md"), "- [ ] Choose three projects to feature")
   T.lacks(T.read("projects/haste.md"), "Choose three projects to feature")
+
+  -- Once Den has read the new text, the move goes through and keeps both.
+  native.call("reload", "projects/haste.md")
+  actions.move(row("website", "Choose three projects to feature"), "haste")
+  T.lacks(T.lines(buf), "Choose three projects to feature", "moved out")
+  local haste = T.read("projects/haste.md")
+  T.contains(haste, "Choose three projects to feature")
+  T.contains(haste, "Changed behind Den's back", "the outside change survives")
   T.settle()
 end)
 
