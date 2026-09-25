@@ -8,9 +8,35 @@
 
 local M = {}
 
---- Where releases live. `{version}` and `{file}` are filled in. Moving the
---- project to another host means changing this one line.
-M.url = "https://gitlab.com/api/v4/projects/cguz109%2FDen/packages/generic/den/{version}/{file}"
+--- Where this copy of the plugin's releases live, worked out from the git
+--- remote it was installed from: GitHub releases, or a GitLab package
+--- registry. `{version}` and `{file}` are filled in later. `setup({
+--- release_url = … })` overrides it.
+function M.url_for(root)
+  local opts = package.loaded["den"] and package.loaded["den"].options or {}
+  if opts.release_url then
+    return opts.release_url
+  end
+  local res = vim.system({ "git", "-C", root, "remote", "get-url", "origin" }, { text = true }):wait()
+  local remote = vim.trim(res.stdout or "")
+  local host, path = remote:match("^https?://([^/]+)/(.+)$")
+  if not host then
+    host, path = remote:match("^ssh://git@([^/:]+)[:%d]*/(.+)$")
+  end
+  if not host then
+    host, path = remote:match("^git@([^:]+):(.+)$")
+  end
+  if not host then
+    return nil
+  end
+  path = path:gsub("%.git$", ""):gsub("/$", "")
+  if host == "github.com" then
+    return ("https://github.com/%s/releases/download/v{version}/{file}"):format(path)
+  elseif host == "gitlab.com" then
+    return ("https://gitlab.com/api/v4/projects/%s/packages/generic/den/{version}/{file}"):format((path:gsub("/", "%%2F")))
+  end
+  return nil
+end
 
 --- This machine's release target, or nil.
 function M.target()
@@ -47,12 +73,15 @@ local function sha256(path, cb)
 end
 
 --- Downloads and installs. `opts`: `root` (the plugin folder), `version`,
---- `url` (a template like `M.url`). Calls `done(ok, message)`.
+--- `url` (a template like `M.url_for` returns). Calls `done(ok, message)`.
 function M.install(opts, done)
   opts = opts or {}
   local root = opts.root or require("den.native").root
   local version = opts.version or require("den.version")
-  local template = opts.url or M.url
+  local template = opts.url or M.url_for(root)
+  if not template then
+    return done(false, "no release address (the plugin was not installed from GitHub or GitLab)")
+  end
   local target = M.target()
   if not target then
     return done(false, "no prebuilt engine for this machine")

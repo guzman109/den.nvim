@@ -1,23 +1,39 @@
-# The same checks as .gitlab-ci.yml, for a copy of Den hosted on GitHub.
-# macOS runners are free for public repositories.
+# Every push and pull request: formatting, lints, the Rust tests, and the
+# headless Neovim tests, on Linux and macOS. Both runners are free for
+# public repositories.
 name: ci
-on: [push, pull_request]
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 env:
+  CARGO_TERM_COLOR: always
+  # Tests run git; keep the runner's own git config out of them.
   GIT_CONFIG_NOSYSTEM: "1"
 jobs:
   check:
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-14]
+        os: [ubuntu-24.04, macos-15]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
-      - run: rustup show
+      # The toolchain and components pinned in rust-toolchain.toml.
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
       - uses: rhysd/action-setup-vim@v1
         with:
           neovim: true
           version: v0.12.5
-      - run: ./scripts/build-nvim.sh && ./scripts/test-nvim.sh
+      - run: ./scripts/build-nvim.sh debug
+      - run: ./scripts/test-nvim.sh

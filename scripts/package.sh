@@ -4,7 +4,7 @@
 #   dist/den-<version>-<target>.tar.gz   lua/den_native.so and bin/den
 #   dist/den-<version>-<target>.tar.gz.sha256
 #
-# Any CI (GitLab, GitHub, a laptop) runs this once per platform, then
+# CI (GitHub Actions) or a laptop runs this once per platform, then
 # scripts/checksums.sh over everything in dist/.
 set -eu
 cd "$(dirname "$0")/.."

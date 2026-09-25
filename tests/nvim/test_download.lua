@@ -111,3 +111,20 @@ T.test("with allowed signers, only a signed release installs", function()
   T.ok(good.ok, good.msg)
   T.eq(read(plugin .. "/lua/den_native.so"), "engine three")
 end)
+
+T.test("the release address comes from the plugin's own remote", function()
+  local repo = base .. "/remote-check"
+  vim.fn.mkdir(repo, "p")
+  sh(("git -C '%s' init -q"):format(repo))
+  local function url(remote)
+    sh(("git -C '%s' remote remove origin 2>/dev/null; git -C '%s' remote add origin '%s'"):format(repo, repo, remote))
+    return download.url_for(repo)
+  end
+  local gh = "https://github.com/someone/Den/releases/download/v{version}/{file}"
+  T.eq(url("https://github.com/someone/Den"), gh)
+  T.eq(url("https://github.com/someone/Den.git"), gh)
+  T.eq(url("git@github.com:someone/Den.git"), gh)
+  T.eq(url("ssh://git@github.com/someone/Den.git"), gh)
+  T.eq(url("git@gitlab.com:someone/Den.git"), "https://gitlab.com/api/v4/projects/someone%2FDen/packages/generic/den/{version}/{file}")
+  T.eq(url("https://example.com/someone/Den.git"), nil)
+end)

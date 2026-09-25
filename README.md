@@ -16,7 +16,7 @@ Neovim 0.11 or later (LuaJIT). macOS or Linux, on arm64 or x86_64.
 
 ```lua
 -- Neovim 0.12, built-in package manager
-vim.pack.add({ "https://gitlab.com/cguz109/Den" })
+vim.pack.add({ "https://github.com/guzman109/Den" })
 require("den").setup({ vault = "~/Notes/den" })
 ```
 
@@ -168,7 +168,7 @@ starts and every few minutes. It waits while a vault buffer has unsaved
 edits.
 
 ```sh
-den init ~/Notes/den --remote git@gitlab.com:you/notes.git   # a new vault
+den init ~/Notes/den --remote git@github.com:you/notes.git   # a new vault
 den sync                                                  # by hand, from a shell
 ```
 
@@ -261,18 +261,17 @@ Rules for code and docs: [CONVENTIONS.md](CONVENTIONS.md).
 
 ### Releasing
 
-Bump `version` in `Cargo.toml` and `lua/den/version.lua` (a test checks they
-match), then push a tag such as `v0.2.0`. CI runs `scripts/package.sh` once
-per platform and publishes the packages with a `SHA256SUMS` file:
+Continuous integration runs on GitHub Actions (`.github/workflows/ci.yml`):
+formatting, clippy, the Rust tests and the headless Neovim tests, on Linux
+and macOS, for every push and pull request.
 
-- **GitLab** (`.gitlab-ci.yml`): Linux x86_64 and arm64 on the free shared
-  runners, into the package registry. macOS needs a runner tagged `macos`,
-  such as your own Mac with `gitlab-runner`; set the CI variable
-  `DEN_MACOS_RUNNER=yes` once it exists. Without one, run
-  `scripts/package.sh` on the Mac and upload the file yourself.
-- **GitHub** (`.github/workflows/`): macOS and Linux runners, free for public
-  repositories; set `M.url` in `lua/den/download.lua` to
-  `https://github.com/<you>/<repo>/releases/download/v{version}/{file}`.
+To release, bump `version` in `Cargo.toml` and `lua/den/version.lua` (the
+release job and a test check they match), then push a tag such as `v0.2.0`.
+`.github/workflows/release.yml` runs `scripts/package.sh` on macOS (Apple
+silicon) and Linux (x86_64 and arm64) and attaches the packages and a
+`SHA256SUMS` file to a GitHub release. `:Den build` finds that release from
+the git remote the plugin was installed from; `setup({ release_url = … })`
+points it elsewhere. All of this is free for public repositories.
 
 To sign a release, sign `SHA256SUMS` on your own machine
 (`ssh-keygen -Y sign -n den-release -f <key> SHA256SUMS`), upload the
