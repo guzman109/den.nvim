@@ -324,22 +324,24 @@ from then on Den refuses unsigned or wrongly signed downloads.
 #### crates.io
 
 `den-core`, `den-cli`, `den-agent` and `den-mcp` are published to crates.io
-(`den-nvim` is not: Neovim loads it from the plugin's folder). The release
-workflow publishes them with trusted publishing, so no API key is stored
-anywhere, but crates.io only allows that for crates that already exist.
-Once, by hand:
+(`den-nvim` is not: Neovim loads it from the plugin's folder) by the release
+workflow, after the GitHub release. It uses trusted publishing, so no API
+key is stored, but crates.io only allows that for crates that already
+exist; the first release publishes with a short-lived API token instead.
+Once:
 
-1. Push a tag, so the GitHub release exists for `cargo binstall`.
-2. On crates.io (sign in with GitHub), make an API token under Account
+1. On crates.io (sign in with GitHub), make an API token under Account
    Settings → API Tokens, with the scopes `publish-new` and
    `publish-update`, for crates matching `den-*`, expiring in a day.
-3. From a clone at that tag: `cargo login` (it asks for the token), then
-   `cargo publish --workspace --locked`, then `cargo logout`, and revoke
-   the token.
+2. In this repository: `gh secret set CARGO_REGISTRY_TOKEN` (it asks for
+   the token) and `gh variable set PUBLISH_CRATES --body true`.
+3. Push the first tag. The workflow makes the GitHub release, then
+   publishes the four crates.
 4. On crates.io, for each of the four crates: Settings → Trusted
    Publishing → Add, with GitHub, owner `guzman109`, repository
    `den.nvim` and workflow `release.yml`.
-5. `gh variable set PUBLISH_CRATES --body true` in this repository.
+5. `gh secret delete CARGO_REGISTRY_TOKEN`, and revoke the token on
+   crates.io.
 
 From then on every tag publishes the new versions. A published version
 cannot be deleted, only yanked (`cargo yank`), which hides it from new

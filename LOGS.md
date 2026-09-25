@@ -31,12 +31,13 @@ next. A change to [PLAN.md](PLAN.md) always gets an entry here.
 
 **Decided**
 - Trusted publishing over a token in the repository's secrets. crates.io
-  needs the first version published by hand with an API token, so that
-  one is short-lived and revoked right after.
+  needs an API token for the first version, so the workflow takes one
+  from the `CARGO_REGISTRY_TOKEN` secret when it is there: short-lived,
+  deleted and revoked right after the first release.
 
 **Next**
-- The owner publishes 0.1.0 once and registers the workflow (README.md,
-  "Releasing").
+- The owner sets the token secret for the first release, then registers
+  the workflow on crates.io (README.md, "Releasing").
 
 ---
 
